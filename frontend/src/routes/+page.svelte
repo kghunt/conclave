@@ -258,10 +258,10 @@
 						<span>Members</span>
 						<button onclick={() => (showMembers = false)}>✕</button>
 					</div>
-					<MemberList serverId={$activeServer.id} />
+					<MemberList serverId={$activeServer.id} onDmStarted={() => (showMembers = false)} />
 				</div>
 			{:else}
-				<MemberList serverId={$activeServer.id} />
+				<MemberList serverId={$activeServer.id} onDmStarted={() => (showMembers = false)} />
 			{/if}
 		{/if}
 	{/if}
