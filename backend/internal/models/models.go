@@ -15,16 +15,18 @@ type User struct {
 }
 
 type Server struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	IconURL     string    `json:"icon_url"`
-	OwnerID     string    `json:"owner_id"`
-	IsPublic    bool      `json:"is_public"`
-	InviteCode  string    `json:"invite_code"`
-	CreatedAt   time.Time `json:"created_at"`
-	// populated on list
-	Role        string    `json:"role,omitempty"`
+	ID                     string    `json:"id"`
+	Name                   string    `json:"name"`
+	Description            string    `json:"description"`
+	IconURL                string    `json:"icon_url"`
+	OwnerID                string    `json:"owner_id"`
+	IsPublic               bool      `json:"is_public"`
+	InviteCode             string    `json:"invite_code"`
+	MemberInvitesEnabled   bool      `json:"member_invites_enabled"`
+	MemberInviteExpiryDays int       `json:"member_invite_expiry_days"`
+	CreatedAt              time.Time `json:"created_at"`
+	// populated on list/get
+	Role                   string    `json:"role,omitempty"`
 }
 
 type Channel struct {
