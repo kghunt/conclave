@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -11,6 +14,8 @@ import (
 	"github.com/karl/conclave/internal/models"
 	"github.com/karl/conclave/internal/ws"
 )
+
+var mentionRe = regexp.MustCompile(`@(\w+)`)
 
 type MessagesHandler struct {
 	db   *pgxpool.Pool
@@ -134,6 +139,7 @@ func (h *MessagesHandler) Send(w http.ResponseWriter, r *http.Request) {
 
 	payload, _ := json.Marshal(m)
 	h.hub.Broadcast("channel:"+channelID, ws.Event{Type: "message.new", Payload: payload})
+	go h.notifyMentions(serverID, m)
 
 	if h.push.enabled() {
 		var chName, srvName string
@@ -192,6 +198,57 @@ func (h *MessagesHandler) Edit(w http.ResponseWriter, r *http.Request) {
 	payload, _ := json.Marshal(m)
 	h.hub.Broadcast("channel:"+channelID, ws.Event{Type: "message.edit", Payload: payload})
 	writeJSON(w, http.StatusOK, m)
+}
+
+func (h *MessagesHandler) notifyMentions(serverID string, msg models.Message) {
+	matches := mentionRe.FindAllStringSubmatch(msg.Content, -1)
+	if len(matches) == 0 {
+		return
+	}
+
+	seen := map[string]bool{}
+	handles := make([]string, 0, len(matches))
+	for _, m := range matches {
+		lower := strings.ToLower(m[1])
+		if !seen[lower] {
+			seen[lower] = true
+			handles = append(handles, lower)
+		}
+	}
+
+	ctx := context.Background()
+	rows, err := h.db.Query(ctx, `
+		SELECT u.id
+		FROM users u
+		JOIN server_members sm ON sm.user_id = u.id
+		WHERE sm.server_id = $1
+		  AND u.id != $2
+		  AND LOWER(REPLACE(u.display_name, ' ', '_')) = ANY($3)
+	`, serverID, msg.Author.ID, handles)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	payload, _ := json.Marshal(msg)
+	for rows.Next() {
+		var uid string
+		if rows.Scan(&uid) != nil {
+			continue
+		}
+		h.hub.Broadcast("user:"+uid, ws.Event{Type: "mention.new", Payload: payload})
+		if h.push.enabled() {
+			content := msg.Content
+			if len(content) > 100 {
+				content = content[:97] + "…"
+			}
+			h.push.SendToUser(uid, PushPayload{
+				Title: msg.Author.DisplayName + " mentioned you",
+				Body:  content,
+				URL:   "/",
+			})
+		}
+	}
 }
 
 func (h *MessagesHandler) Delete(w http.ResponseWriter, r *http.Request) {

@@ -2,7 +2,8 @@
 	import { onMount } from 'svelte';
 	import { api, type Message, type DirectMessage } from '$lib/api';
 	import { socket } from '$lib/socket';
-	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent, instanceConfig } from '$lib/stores';
+	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent, instanceConfig, serverMembers, mentionedChannels } from '$lib/stores';
+	import type { ServerMember } from '$lib/api';
 	import ServerList from '$lib/components/ServerList.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
 	import MessageFeed from '$lib/components/MessageFeed.svelte';
@@ -56,7 +57,7 @@
 		activeDM.set(null);
 	}
 
-	// Load channels when active server changes; auto-select first channel; persist choice
+	// Load channels + members when active server changes
 	$effect(() => {
 		const srv = $activeServer;
 		if (!srv) return;
@@ -66,6 +67,7 @@
 			channels.set(ch ?? []);
 			if (ch?.length > 0) activeChannel.set(ch[0]);
 		});
+		api.getMembers(id).then((ms) => serverMembers.set(ms ?? []));
 	});
 
 	// Load messages and subscribe to WS when active channel changes
@@ -136,6 +138,65 @@
 	let fileInput: HTMLInputElement;
 	let textarea: HTMLTextAreaElement;
 
+	// @mention autocomplete
+	let mentionQuery = $state('');
+	let mentionStart = $state(-1);
+	let mentionIdx = $state(0);
+	let showMentionPopup = $state(false);
+
+	let mentionMatches = $derived(
+		showMentionPopup
+			? $serverMembers
+				.filter(m => m.user.id !== $currentUser?.id &&
+					m.user.display_name.toLowerCase().includes(mentionQuery.toLowerCase()))
+				.slice(0, 8)
+			: [] as ServerMember[]
+	);
+
+	// Listen for incoming mentions on the personal WS room
+	$effect(() => {
+		const uid = $currentUser?.id;
+		if (!uid) return;
+		const unsub = socket.on((event) => {
+			if (event.type === 'mention.new') {
+				const chId = event.payload.channel_id;
+				if ($activeChannel?.id !== chId) {
+					mentionedChannels.update(s => new Set([...s, chId]));
+				}
+			}
+		});
+		return () => unsub();
+	});
+
+	function onInput() {
+		const el = textarea;
+		if (!el || !$activeServer) return;
+		const pos = el.selectionStart ?? 0;
+		const before = input.slice(0, pos);
+		const match = before.match(/@(\w*)$/);
+		if (match) {
+			mentionQuery = match[1];
+			mentionStart = pos - match[0].length;
+			mentionIdx = 0;
+			showMentionPopup = true;
+		} else {
+			showMentionPopup = false;
+		}
+	}
+
+	function insertMention(member: ServerMember) {
+		const handle = member.user.display_name.replace(/\s+/g, '_');
+		const el = textarea;
+		if (!el) return;
+		const curPos = el.selectionStart ?? input.length;
+		input = input.slice(0, mentionStart) + '@' + handle + ' ' + input.slice(curPos);
+		showMentionPopup = false;
+		setTimeout(() => {
+			el.focus();
+			el.selectionStart = el.selectionEnd = mentionStart + handle.length + 2;
+		}, 0);
+	}
+
 	function insertEmoji(emoji: string) {
 		const el = textarea;
 		if (!el) { input += emoji; return; }
@@ -152,6 +213,7 @@
 		const text = input.trim();
 		if (!text) return;
 		input = '';
+		showMentionPopup = false;
 		if ($activeDM) {
 			await api.sendDM($activeDM.id, text);
 		} else if ($activeChannel && $activeServer) {
@@ -191,6 +253,12 @@
 	}
 
 	function onKeydown(e: KeyboardEvent) {
+		if (showMentionPopup && mentionMatches.length > 0) {
+			if (e.key === 'ArrowDown') { e.preventDefault(); mentionIdx = (mentionIdx + 1) % mentionMatches.length; return; }
+			if (e.key === 'ArrowUp') { e.preventDefault(); mentionIdx = (mentionIdx - 1 + mentionMatches.length) % mentionMatches.length; return; }
+			if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertMention(mentionMatches[mentionIdx]); return; }
+			if (e.key === 'Escape') { showMentionPopup = false; return; }
+		}
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
 			send();
@@ -266,10 +334,24 @@
 				</div>
 				<input bind:this={fileInput} type="file" accept="image/*" style="display:none"
 					onchange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) uploadAndSend(f); }} />
+				{#if showMentionPopup && mentionMatches.length > 0}
+					<div class="mention-popup">
+						{#each mentionMatches as member, i}
+							<button
+								class="mention-item"
+								class:selected={i === mentionIdx}
+								onmousedown={(e) => { e.preventDefault(); insertMention(member); }}
+							>
+								<span class="mention-name">{member.user.display_name}</span>
+							</button>
+						{/each}
+					</div>
+				{/if}
 				<textarea
 					bind:this={textarea}
 					bind:value={input}
 					onkeydown={onKeydown}
+					oninput={onInput}
 					onpaste={onPaste}
 					onbeforeinput={onBeforeInput}
 					placeholder={$activeChannel ? `Message #${$activeChannel.name}` : $activeDM ? `Message ${$activeDM.other_user.display_name}` : 'Select a channel'}
@@ -372,7 +454,37 @@
 		display: flex;
 		gap: 0.5rem;
 		align-items: flex-end;
+		position: relative;
 	}
+	.mention-popup {
+		position: absolute;
+		bottom: calc(100% - 0.5rem);
+		left: 3.5rem;
+		right: 1rem;
+		background: var(--bg-panel);
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		overflow: hidden;
+		box-shadow: 0 -4px 12px rgba(0,0,0,0.4);
+		z-index: 50;
+		max-height: 240px;
+		overflow-y: auto;
+	}
+	.mention-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		width: 100%;
+		padding: 0.5rem 0.75rem;
+		background: none;
+		border: none;
+		color: var(--text);
+		cursor: pointer;
+		text-align: left;
+		font-size: 0.9rem;
+	}
+	.mention-item:hover, .mention-item.selected { background: var(--bg-input); }
+	.mention-name { font-weight: 500; }
 	.input-actions {
 		display: flex;
 		gap: 0.25rem;
