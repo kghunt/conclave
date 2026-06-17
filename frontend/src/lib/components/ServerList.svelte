@@ -30,7 +30,7 @@
 		error = '';
 		try {
 			const s = await api.createServer({ name: newName, description: newDesc, is_public: isPublic });
-			servers.update((prev) => [...prev, s]);
+			servers.update((prev) => [...(prev ?? []), s]);
 			selectServer(s.id);
 			showCreate = false;
 			newName = '';

@@ -36,7 +36,7 @@ func (h *DMsHandler) ListConversations(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var convs []models.DMConversation
+	convs := make([]models.DMConversation, 0)
 	for rows.Next() {
 		var c models.DMConversation
 		c.OtherUser = &models.User{}
@@ -104,7 +104,7 @@ func (h *DMsHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var messages []models.DirectMessage
+	messages := make([]models.DirectMessage, 0)
 	for rows.Next() {
 		var m models.DirectMessage
 		m.Sender = &models.User{}

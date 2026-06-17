@@ -71,7 +71,7 @@ func (h *MessagesHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var messages []models.Message
+	messages := make([]models.Message, 0)
 	for rows.Next() {
 		var m models.Message
 		m.Author = &models.User{}

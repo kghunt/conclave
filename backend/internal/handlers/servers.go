@@ -39,7 +39,7 @@ func (h *ServersHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var servers []models.Server
+	servers := make([]models.Server, 0)
 	for rows.Next() {
 		var s models.Server
 		if err := rows.Scan(&s.ID, &s.Name, &s.Description, &s.IconURL, &s.OwnerID, &s.IsPublic, &s.InviteCode, &s.CreatedAt, &s.Role); err != nil {
@@ -292,7 +292,7 @@ func (h *ServersHandler) Members(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var members []models.ServerMember
+	members := make([]models.ServerMember, 0)
 	for rows.Next() {
 		var m models.ServerMember
 		m.User = &models.User{}
