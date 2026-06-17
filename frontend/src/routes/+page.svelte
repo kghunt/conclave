@@ -65,7 +65,8 @@
 		localStorage.setItem('lastServerId', id);
 		api.listChannels(id).then((ch) => {
 			channels.set(ch ?? []);
-			if (ch?.length > 0) activeChannel.set(ch[0]);
+			// On mobile, show the channel list so the user can choose; on desktop auto-select first
+			if (ch?.length > 0 && !isMobile) activeChannel.set(ch[0]);
 		});
 		api.getMembers(id).then((ms) => serverMembers.set(ms ?? []));
 	});
