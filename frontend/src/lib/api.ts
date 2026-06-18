@@ -30,7 +30,7 @@ export const api = {
 		req<Server>('POST', '/servers', data),
 	getServer: (id: string) => req<Server>('GET', `/servers/${id}`),
 	joinServer: (id: string) => req<void>('POST', `/servers/${id}/join`),
-	updateServer: (id: string, data: { name?: string; description?: string; is_public?: boolean; show_in_discovery?: boolean; member_invites_enabled?: boolean; member_invite_expiry_days?: number }) =>
+	updateServer: (id: string, data: { name?: string; description?: string; rules?: string; is_public?: boolean; show_in_discovery?: boolean; member_invites_enabled?: boolean; member_invite_expiry_days?: number }) =>
 		req<Server>('PATCH', `/servers/${id}`, data),
 	uploadServerIcon: async (id: string, file: File) => {
 		const form = new FormData();
@@ -45,6 +45,7 @@ export const api = {
 	updateMemberRole: (serverId: string, userId: string, role: 'admin' | 'member') =>
 		req<{ role: string }>('PATCH', `/servers/${serverId}/members/${userId}`, { role }),
 	createInvite: (serverId: string) => req<Invite>('POST', `/servers/${serverId}/invites`),
+	getInviteInfo: (code: string) => req<{ server_name: string; rules: string }>('GET', `/invites/${code}`),
 	joinByInvite: (code: string) => req<{ server_id: string }>('POST', `/invites/${code}/join`),
 
 	// channels
@@ -182,6 +183,7 @@ export interface ServerDiscovery {
 	id: string;
 	name: string;
 	description: string;
+	rules: string;
 	icon_url: string;
 	member_count: number;
 	is_member: boolean;
@@ -215,6 +217,7 @@ export interface Server {
 	id: string;
 	name: string;
 	description: string;
+	rules: string;
 	icon_url: string;
 	owner_id: string;
 	is_public: boolean;

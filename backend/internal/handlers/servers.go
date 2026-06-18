@@ -33,7 +33,7 @@ func NewServers(db *pgxpool.Pool, hub *ws.Hub, instanceAdminEmail string) *Serve
 func (h *ServersHandler) List(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r)
 	rows, err := h.db.Query(r.Context(), `
-		SELECT s.id, s.name, s.description, s.icon_url, s.owner_id, s.is_public, s.show_in_discovery,
+		SELECT s.id, s.name, s.description, s.rules, s.icon_url, s.owner_id, s.is_public, s.show_in_discovery,
 		       s.invite_code, s.member_invites_enabled, s.member_invite_expiry_days, s.created_at, sm.role
 		FROM servers s
 		JOIN server_members sm ON sm.server_id = s.id AND sm.user_id = $1
@@ -48,7 +48,7 @@ func (h *ServersHandler) List(w http.ResponseWriter, r *http.Request) {
 	servers := make([]models.Server, 0)
 	for rows.Next() {
 		var s models.Server
-		if err := rows.Scan(&s.ID, &s.Name, &s.Description, &s.IconURL, &s.OwnerID, &s.IsPublic, &s.ShowInDiscovery,
+		if err := rows.Scan(&s.ID, &s.Name, &s.Description, &s.Rules, &s.IconURL, &s.OwnerID, &s.IsPublic, &s.ShowInDiscovery,
 			&s.InviteCode, &s.MemberInvitesEnabled, &s.MemberInviteExpiryDays, &s.CreatedAt, &s.Role); err != nil {
 			continue
 		}
@@ -86,10 +86,10 @@ func (h *ServersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	err := h.db.QueryRow(r.Context(), `
 		INSERT INTO servers (name, description, owner_id, is_public, invite_code)
 		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, name, description, icon_url, owner_id, is_public, show_in_discovery,
+		RETURNING id, name, description, rules, icon_url, owner_id, is_public, show_in_discovery,
 		          invite_code, member_invites_enabled, member_invite_expiry_days, created_at
 	`, body.Name, body.Description, userID, body.IsPublic, inviteCode).Scan(
-		&s.ID, &s.Name, &s.Description, &s.IconURL, &s.OwnerID, &s.IsPublic, &s.ShowInDiscovery,
+		&s.ID, &s.Name, &s.Description, &s.Rules, &s.IconURL, &s.OwnerID, &s.IsPublic, &s.ShowInDiscovery,
 		&s.InviteCode, &s.MemberInvitesEnabled, &s.MemberInviteExpiryDays, &s.CreatedAt,
 	)
 	if err != nil {
@@ -118,12 +118,13 @@ func (h *ServersHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Name                   string `json:"name"`
-		Description            string `json:"description"`
-		IsPublic               *bool  `json:"is_public"`
-		ShowInDiscovery        *bool  `json:"show_in_discovery"`
-		MemberInvitesEnabled   *bool  `json:"member_invites_enabled"`
-		MemberInviteExpiryDays *int   `json:"member_invite_expiry_days"`
+		Name                   string  `json:"name"`
+		Description            string  `json:"description"`
+		Rules                  *string `json:"rules"`
+		IsPublic               *bool   `json:"is_public"`
+		ShowInDiscovery        *bool   `json:"show_in_discovery"`
+		MemberInvitesEnabled   *bool   `json:"member_invites_enabled"`
+		MemberInviteExpiryDays *int    `json:"member_invite_expiry_days"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body")
@@ -139,16 +140,17 @@ func (h *ServersHandler) Update(w http.ResponseWriter, r *http.Request) {
 		UPDATE servers SET
 			name                      = CASE WHEN $2 != '' THEN $2 ELSE name END,
 			description               = CASE WHEN $3 != '' THEN $3 ELSE description END,
-			is_public                 = COALESCE($4, is_public),
-			show_in_discovery         = COALESCE($5, show_in_discovery),
-			member_invites_enabled    = COALESCE($6, member_invites_enabled),
-			member_invite_expiry_days = COALESCE($7, member_invite_expiry_days)
+			rules                     = COALESCE($4, rules),
+			is_public                 = COALESCE($5, is_public),
+			show_in_discovery         = COALESCE($6, show_in_discovery),
+			member_invites_enabled    = COALESCE($7, member_invites_enabled),
+			member_invite_expiry_days = COALESCE($8, member_invite_expiry_days)
 		WHERE id = $1
-		RETURNING id, name, description, icon_url, owner_id, is_public, show_in_discovery,
+		RETURNING id, name, description, rules, icon_url, owner_id, is_public, show_in_discovery,
 		          invite_code, member_invites_enabled, member_invite_expiry_days, created_at
-	`, serverID, body.Name, body.Description, body.IsPublic, body.ShowInDiscovery,
+	`, serverID, body.Name, body.Description, body.Rules, body.IsPublic, body.ShowInDiscovery,
 		body.MemberInvitesEnabled, body.MemberInviteExpiryDays).Scan(
-		&s.ID, &s.Name, &s.Description, &s.IconURL, &s.OwnerID, &s.IsPublic, &s.ShowInDiscovery,
+		&s.ID, &s.Name, &s.Description, &s.Rules, &s.IconURL, &s.OwnerID, &s.IsPublic, &s.ShowInDiscovery,
 		&s.InviteCode, &s.MemberInvitesEnabled, &s.MemberInviteExpiryDays, &s.CreatedAt,
 	)
 	if err != nil {
@@ -219,14 +221,14 @@ func (h *ServersHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	var s models.Server
 	err := h.db.QueryRow(r.Context(), `
-		SELECT s.id, s.name, s.description, s.icon_url, s.owner_id, s.is_public, s.show_in_discovery,
+		SELECT s.id, s.name, s.description, s.rules, s.icon_url, s.owner_id, s.is_public, s.show_in_discovery,
 		       s.invite_code, s.member_invites_enabled, s.member_invite_expiry_days, s.created_at,
 		       COALESCE(sm.role, '')
 		FROM servers s
 		LEFT JOIN server_members sm ON sm.server_id = s.id AND sm.user_id = $2
 		WHERE s.id = $1
 	`, serverID, userID).Scan(
-		&s.ID, &s.Name, &s.Description, &s.IconURL, &s.OwnerID, &s.IsPublic, &s.ShowInDiscovery,
+		&s.ID, &s.Name, &s.Description, &s.Rules, &s.IconURL, &s.OwnerID, &s.IsPublic, &s.ShowInDiscovery,
 		&s.InviteCode, &s.MemberInvitesEnabled, &s.MemberInviteExpiryDays, &s.CreatedAt, &s.Role,
 	)
 	if err != nil {
@@ -472,6 +474,7 @@ type serverDiscovery struct {
 	ID                string `json:"id"`
 	Name              string `json:"name"`
 	Description       string `json:"description"`
+	Rules             string `json:"rules"`
 	IconURL           string `json:"icon_url"`
 	MemberCount       int    `json:"member_count"`
 	IsMember          bool   `json:"is_member"`
@@ -511,7 +514,7 @@ func (h *ServersHandler) Discover(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
 
 	rows, err := h.db.Query(r.Context(), `
-		SELECT s.id, s.name, s.description, s.icon_url,
+		SELECT s.id, s.name, s.description, s.rules, s.icon_url,
 		       COUNT(sm.user_id) AS member_count,
 		       EXISTS(SELECT 1 FROM server_members WHERE server_id = s.id AND user_id = $1) AS is_member,
 		       NOT s.is_public AS requires_request,
@@ -534,7 +537,7 @@ func (h *ServersHandler) Discover(w http.ResponseWriter, r *http.Request) {
 	results := make([]serverDiscovery, 0)
 	for rows.Next() {
 		var d serverDiscovery
-		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &d.IconURL, &d.MemberCount, &d.IsMember, &d.RequiresRequest, &d.HasPendingRequest); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &d.Rules, &d.IconURL, &d.MemberCount, &d.IsMember, &d.RequiresRequest, &d.HasPendingRequest); err != nil {
 			continue
 		}
 		results = append(results, d)
@@ -820,6 +823,26 @@ func (h *ServersHandler) ListBans(w http.ResponseWriter, r *http.Request) {
 		bans = append(bans, e)
 	}
 	writeJSON(w, http.StatusOK, bans)
+}
+
+// GetInvite returns basic server info (name + rules) for an invite code without joining.
+// Used to show rules to the user before they commit to joining.
+func (h *ServersHandler) GetInvite(w http.ResponseWriter, r *http.Request) {
+	code := chi.URLParam(r, "code")
+	var result struct {
+		ServerName string `json:"server_name"`
+		Rules      string `json:"rules"`
+	}
+	err := h.db.QueryRow(r.Context(), `
+		SELECT s.name, s.rules FROM invites i
+		JOIN servers s ON s.id = i.server_id
+		WHERE i.code = $1 AND (i.expires_at IS NULL OR i.expires_at > NOW())
+	`, code).Scan(&result.ServerName, &result.Rules)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "invite not found or expired")
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *ServersHandler) broadcastMemberJoin(serverID, userID string) {

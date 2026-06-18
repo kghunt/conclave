@@ -16,6 +16,7 @@
 	let showEdit = $state(false);
 	let editName = $state(server.name);
 	let editDesc = $state(server.description);
+	let editRules = $state(server.rules ?? '');
 	let editPublic = $state(server.is_public);
 	let editShowInDiscovery = $state(server.show_in_discovery ?? false);
 	let editMemberInvites = $state(server.member_invites_enabled);
@@ -41,6 +42,7 @@
 			const updated = await api.updateServer(server.id, {
 				name: editName,
 				description: editDesc,
+				rules: editRules,
 				is_public: editPublic,
 				show_in_discovery: editShowInDiscovery,
 				member_invites_enabled: editMemberInvites,
@@ -148,6 +150,11 @@
 		<label>
 			Description
 			<textarea bind:value={editDesc} rows="2"></textarea>
+		</label>
+		<div class="section-divider">Space Rules</div>
+		<label>
+			Rules (shown to users before they join)
+			<textarea bind:value={editRules} rows="5" placeholder="Enter your space rules here…"></textarea>
 		</label>
 		<label class="checkbox-label">
 			<input type="checkbox" bind:checked={editPublic} />

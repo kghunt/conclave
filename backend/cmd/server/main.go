@@ -72,6 +72,7 @@ func main() {
 	r.Get("/api/auth/login", authH.Login)
 	r.Get("/api/auth/callback", authH.Callback)
 	r.Post("/api/auth/logout", authH.Logout)
+	r.Get("/api/invites/{code}", serversH.GetInvite)
 
 	// websocket
 	r.Get("/ws", wsH.Handle)

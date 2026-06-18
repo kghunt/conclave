@@ -18,6 +18,7 @@ type Server struct {
 	ID                     string    `json:"id"`
 	Name                   string    `json:"name"`
 	Description            string    `json:"description"`
+	Rules                  string    `json:"rules"`
 	IconURL                string    `json:"icon_url"`
 	OwnerID                string    `json:"owner_id"`
 	IsPublic               bool      `json:"is_public"`

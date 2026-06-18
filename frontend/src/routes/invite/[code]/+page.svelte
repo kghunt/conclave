@@ -5,11 +5,33 @@
 	import { api } from '$lib/api';
 	import { servers, activeServer, channels, activeChannel } from '$lib/stores';
 
-	let status: 'joining' | 'error' = $state('joining');
+	type Phase = 'loading' | 'rules' | 'joining' | 'error';
+	let phase = $state<Phase>('loading');
+	let serverName = $state('');
+	let rules = $state('');
+	let rulesAccepted = $state(false);
 	let errorMsg = $state('');
 
+	const code = $derived($page.params.code ?? '');
+
 	onMount(async () => {
-		const code = $page.params.code ?? '';
+		try {
+			const info = await api.getInviteInfo(code);
+			serverName = info.server_name;
+			rules = info.rules;
+			if (rules) {
+				phase = 'rules';
+			} else {
+				await doJoin();
+			}
+		} catch (e: any) {
+			phase = 'error';
+			errorMsg = e.message ?? 'Invalid or expired invite link';
+		}
+	});
+
+	async function doJoin() {
+		phase = 'joining';
 		try {
 			const { server_id } = await api.joinByInvite(code);
 			const updated = await api.listServers();
@@ -22,14 +44,14 @@
 			}
 			goto('/');
 		} catch (e: any) {
-			status = 'error';
-			errorMsg = e.message ?? 'Invalid or expired invite link';
+			phase = 'error';
+			errorMsg = e.message ?? 'Failed to join space';
 		}
-	});
+	}
 </script>
 
 <div class="wrap">
-	<div class="card">
+	<div class="card" class:wide={phase === 'rules'}>
 		<div class="logo">
 			<svg width="40" height="40" viewBox="0 0 32 32">
 				<rect width="32" height="32" rx="7" fill="var(--bg-panel)"/>
@@ -38,9 +60,25 @@
 			<span>Conclave</span>
 		</div>
 
-		{#if status === 'joining'}
-			<p class="status">Joining space…</p>
+		{#if phase === 'loading'}
+			<p class="status">Loading…</p>
 			<div class="spinner"></div>
+
+		{:else if phase === 'rules'}
+			<p class="status">You've been invited to <strong>{serverName}</strong>.<br>Please read and accept the rules before joining.</p>
+			<div class="rules-box">
+				<pre class="rules-text">{rules}</pre>
+			</div>
+			<label class="accept-label">
+				<input type="checkbox" bind:checked={rulesAccepted} />
+				I have read and agree to these rules
+			</label>
+			<button class="join-btn" disabled={!rulesAccepted} onclick={doJoin}>Accept & Join</button>
+
+		{:else if phase === 'joining'}
+			<p class="status">Joining {serverName}…</p>
+			<div class="spinner"></div>
+
 		{:else}
 			<p class="error">{errorMsg}</p>
 			<a href="/" class="home-btn">Go to Conclave</a>
@@ -63,12 +101,14 @@
 		border-radius: 12px;
 		padding: 2.5rem;
 		text-align: center;
-		width: 320px;
+		width: 340px;
+		max-width: calc(100vw - 2rem);
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		gap: 1rem;
 	}
+	.card.wide { width: 560px; }
 	.logo {
 		display: flex;
 		align-items: center;
@@ -77,7 +117,49 @@
 		font-weight: 700;
 		color: var(--text);
 	}
-	.status { color: var(--text-muted); font-size: 0.95rem; }
+	.status { color: var(--text-muted); font-size: 0.95rem; line-height: 1.5; }
+	.status strong { color: var(--text); }
+	.rules-box {
+		width: 100%;
+		max-height: 280px;
+		overflow-y: auto;
+		background: var(--bg-input);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		padding: 1rem;
+		text-align: left;
+	}
+	.rules-text {
+		white-space: pre-wrap;
+		word-break: break-word;
+		font-family: inherit;
+		font-size: 0.875rem;
+		color: var(--text);
+		line-height: 1.6;
+		margin: 0;
+	}
+	.accept-label {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.875rem;
+		color: var(--text);
+		cursor: pointer;
+		align-self: flex-start;
+	}
+	.join-btn {
+		background: var(--accent);
+		border: none;
+		color: white;
+		padding: 0.6rem 1.5rem;
+		border-radius: 6px;
+		font-size: 0.95rem;
+		font-weight: 600;
+		cursor: pointer;
+		width: 100%;
+	}
+	.join-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+	.join-btn:not(:disabled):hover { filter: brightness(1.1); }
 	.error {
 		color: #e04545;
 		font-size: 0.9rem;
