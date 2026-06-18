@@ -1,8 +1,12 @@
 <script lang="ts">
 	import { api, type Server } from '$lib/api';
-	import { servers, activeServer, channels, activeChannel, instanceConfig } from '$lib/stores';
+	import { servers, activeServer, channels, activeChannel, instanceConfig, currentUser } from '$lib/stores';
 	import ServerContextMenu from './ServerContextMenu.svelte';
 	import SpaceBrowser from './SpaceBrowser.svelte';
+
+	const canCreateSpace = $derived(
+		$instanceConfig.allow_user_space_creation || $currentUser?.is_instance_admin
+	);
 
 	let showCreate = $state(false);
 	let showBrowse = $state(false);
@@ -91,7 +95,7 @@
 
 	<div class="divider"></div>
 
-	{#if $instanceConfig.allow_user_space_creation}
+	{#if canCreateSpace}
 		<button class="server-icon add" title="Create or join a space" onclick={() => { showCreate = !showCreate; showBrowse = false; }}>
 			+
 		</button>
