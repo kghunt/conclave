@@ -16,6 +16,8 @@
 	let editName = $state(server.name);
 	let editDesc = $state(server.description);
 	let editPublic = $state(server.is_public);
+	let editMemberInvites = $state(server.member_invites_enabled);
+	let editExpiryDays = $state(server.member_invite_expiry_days ?? 7);
 	let saving = $state(false);
 
 	// Invite state
@@ -37,7 +39,9 @@
 			const updated = await api.updateServer(server.id, {
 				name: editName,
 				description: editDesc,
-				is_public: editPublic
+				is_public: editPublic,
+				member_invites_enabled: editMemberInvites,
+				member_invite_expiry_days: editExpiryDays
 			});
 			servers.update((prev) => prev.map((s) => s.id === updated.id ? { ...s, ...updated } : s));
 			if ($activeServer?.id === updated.id) activeServer.set({ ...$activeServer, ...updated });
@@ -51,6 +55,12 @@
 	async function generateInvite() {
 		const invite = await api.createInvite(server.id);
 		generatedInvite = invite;
+	}
+
+	function formatExpiry(expiresAt: string): string {
+		const days = Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 86400000);
+		if (days <= 0) return 'soon';
+		return `in ${days} day${days === 1 ? '' : 's'}`;
 	}
 
 	async function copyInvite() {
@@ -140,6 +150,23 @@
 			<input type="checkbox" bind:checked={editPublic} />
 			Public (anyone can join)
 		</label>
+		<div class="section-divider">Member Invites</div>
+		<label class="checkbox-label">
+			<input type="checkbox" bind:checked={editMemberInvites} />
+			Allow members to create invite links
+		</label>
+		{#if editMemberInvites}
+			<label>
+				Member invite expires after
+				<select bind:value={editExpiryDays}>
+					<option value={1}>1 day</option>
+					<option value={3}>3 days</option>
+					<option value={7}>7 days</option>
+					<option value={14}>14 days</option>
+					<option value={30}>30 days</option>
+				</select>
+			</label>
+		{/if}
 		<div class="edit-actions">
 			<button class="cancel" onclick={() => (showEdit = false)}>Back</button>
 			<button class="save" onclick={saveEdit} disabled={saving || !editName.trim()}>
@@ -157,13 +184,20 @@
 			<input bind:this={iconInput} type="file" accept="image/*" onchange={uploadIcon} style="display:none" />
 		{/if}
 
-		{#if isAdmin}
+		{#if isAdmin || server.member_invites_enabled}
 			{#if !generatedInvite}
 				<button onclick={generateInvite}>Generate Invite Link</button>
 			{:else}
 				<div class="invite-row">
 					<span class="invite-code">{generatedInvite.code}</span>
 					<button class="copy-btn" onclick={copyInvite}>{copied ? '✓ Copied' : 'Copy'}</button>
+				</div>
+				<div class="invite-meta">
+					{#if generatedInvite.expires_at}
+						Expires {formatExpiry(generatedInvite.expires_at)}
+					{:else}
+						Permanent
+					{/if}
 				</div>
 			{/if}
 		{/if}
@@ -247,6 +281,32 @@
 		padding: 0.2rem 0.5rem !important;
 		font-size: 0.75rem !important;
 		border-radius: 3px !important;
+	}
+	.invite-meta {
+		padding: 0 0.625rem 0.375rem;
+		font-size: 0.7rem;
+		color: #8b8b99;
+	}
+	.section-divider {
+		padding: 0.625rem 0.625rem 0.25rem;
+		font-size: 0.7rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		color: #8b8b99;
+		letter-spacing: 0.05em;
+		border-top: 1px solid #2e2e38;
+		margin-top: 0.25rem;
+	}
+	label select {
+		background: #26262b;
+		border: 1px solid #2e2e38;
+		color: #f0eff4;
+		padding: 0.4rem 0.5rem;
+		border-radius: 4px;
+		font-size: 0.875rem;
+		font-family: inherit;
+		outline: none;
+		width: 100%;
 	}
 
 	/* Edit / delete forms */

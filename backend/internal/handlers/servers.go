@@ -28,7 +28,8 @@ func NewServers(db *pgxpool.Pool) *ServersHandler {
 func (h *ServersHandler) List(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r)
 	rows, err := h.db.Query(r.Context(), `
-		SELECT s.id, s.name, s.description, s.icon_url, s.owner_id, s.is_public, s.invite_code, s.created_at, sm.role
+		SELECT s.id, s.name, s.description, s.icon_url, s.owner_id, s.is_public, s.invite_code,
+		       s.member_invites_enabled, s.member_invite_expiry_days, s.created_at, sm.role
 		FROM servers s
 		JOIN server_members sm ON sm.server_id = s.id AND sm.user_id = $1
 		ORDER BY s.name
@@ -42,7 +43,8 @@ func (h *ServersHandler) List(w http.ResponseWriter, r *http.Request) {
 	servers := make([]models.Server, 0)
 	for rows.Next() {
 		var s models.Server
-		if err := rows.Scan(&s.ID, &s.Name, &s.Description, &s.IconURL, &s.OwnerID, &s.IsPublic, &s.InviteCode, &s.CreatedAt, &s.Role); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.Description, &s.IconURL, &s.OwnerID, &s.IsPublic, &s.InviteCode,
+			&s.MemberInvitesEnabled, &s.MemberInviteExpiryDays, &s.CreatedAt, &s.Role); err != nil {
 			continue
 		}
 		servers = append(servers, s)
@@ -67,9 +69,11 @@ func (h *ServersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	err := h.db.QueryRow(r.Context(), `
 		INSERT INTO servers (name, description, owner_id, is_public, invite_code)
 		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, name, description, icon_url, owner_id, is_public, invite_code, created_at
+		RETURNING id, name, description, icon_url, owner_id, is_public, invite_code,
+		          member_invites_enabled, member_invite_expiry_days, created_at
 	`, body.Name, body.Description, userID, body.IsPublic, inviteCode).Scan(
-		&s.ID, &s.Name, &s.Description, &s.IconURL, &s.OwnerID, &s.IsPublic, &s.InviteCode, &s.CreatedAt,
+		&s.ID, &s.Name, &s.Description, &s.IconURL, &s.OwnerID, &s.IsPublic, &s.InviteCode,
+		&s.MemberInvitesEnabled, &s.MemberInviteExpiryDays, &s.CreatedAt,
 	)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "create failed")
@@ -97,25 +101,36 @@ func (h *ServersHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		IsPublic    *bool  `json:"is_public"`
+		Name                   string `json:"name"`
+		Description            string `json:"description"`
+		IsPublic               *bool  `json:"is_public"`
+		MemberInvitesEnabled   *bool  `json:"member_invites_enabled"`
+		MemberInviteExpiryDays *int   `json:"member_invite_expiry_days"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if body.MemberInviteExpiryDays != nil && *body.MemberInviteExpiryDays < 1 {
+		writeErr(w, http.StatusBadRequest, "expiry must be at least 1 day")
 		return
 	}
 
 	var s models.Server
 	err := h.db.QueryRow(r.Context(), `
 		UPDATE servers SET
-			name        = CASE WHEN $2 != '' THEN $2 ELSE name END,
-			description = CASE WHEN $3 != '' THEN $3 ELSE description END,
-			is_public   = COALESCE($4, is_public)
+			name                     = CASE WHEN $2 != '' THEN $2 ELSE name END,
+			description              = CASE WHEN $3 != '' THEN $3 ELSE description END,
+			is_public                = COALESCE($4, is_public),
+			member_invites_enabled   = COALESCE($5, member_invites_enabled),
+			member_invite_expiry_days = COALESCE($6, member_invite_expiry_days)
 		WHERE id = $1
-		RETURNING id, name, description, icon_url, owner_id, is_public, invite_code, created_at
-	`, serverID, body.Name, body.Description, body.IsPublic).Scan(
-		&s.ID, &s.Name, &s.Description, &s.IconURL, &s.OwnerID, &s.IsPublic, &s.InviteCode, &s.CreatedAt,
+		RETURNING id, name, description, icon_url, owner_id, is_public, invite_code,
+		          member_invites_enabled, member_invite_expiry_days, created_at
+	`, serverID, body.Name, body.Description, body.IsPublic,
+		body.MemberInvitesEnabled, body.MemberInviteExpiryDays).Scan(
+		&s.ID, &s.Name, &s.Description, &s.IconURL, &s.OwnerID, &s.IsPublic, &s.InviteCode,
+		&s.MemberInvitesEnabled, &s.MemberInviteExpiryDays, &s.CreatedAt,
 	)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "update failed")
@@ -185,12 +200,14 @@ func (h *ServersHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	var s models.Server
 	err := h.db.QueryRow(r.Context(), `
-		SELECT s.id, s.name, s.description, s.icon_url, s.owner_id, s.is_public, s.invite_code, s.created_at, COALESCE(sm.role, '')
+		SELECT s.id, s.name, s.description, s.icon_url, s.owner_id, s.is_public, s.invite_code,
+		       s.member_invites_enabled, s.member_invite_expiry_days, s.created_at, COALESCE(sm.role, '')
 		FROM servers s
 		LEFT JOIN server_members sm ON sm.server_id = s.id AND sm.user_id = $2
 		WHERE s.id = $1
 	`, serverID, userID).Scan(
-		&s.ID, &s.Name, &s.Description, &s.IconURL, &s.OwnerID, &s.IsPublic, &s.InviteCode, &s.CreatedAt, &s.Role,
+		&s.ID, &s.Name, &s.Description, &s.IconURL, &s.OwnerID, &s.IsPublic, &s.InviteCode,
+		&s.MemberInvitesEnabled, &s.MemberInviteExpiryDays, &s.CreatedAt, &s.Role,
 	)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "server not found")
@@ -374,19 +391,32 @@ func (h *ServersHandler) CreateInvite(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r)
 
 	var role string
-	h.db.QueryRow(r.Context(), `SELECT role FROM server_members WHERE server_id=$1 AND user_id=$2`, serverID, userID).Scan(&role)
-	if role != "owner" && role != "admin" {
-		writeErr(w, http.StatusForbidden, "admin required")
+	var memberInvitesEnabled bool
+	var memberInviteExpiryDays int
+	err := h.db.QueryRow(r.Context(), `
+		SELECT sm.role, s.member_invites_enabled, s.member_invite_expiry_days
+		FROM server_members sm JOIN servers s ON s.id = sm.server_id
+		WHERE sm.server_id = $1 AND sm.user_id = $2
+	`, serverID, userID).Scan(&role, &memberInvitesEnabled, &memberInviteExpiryDays)
+	if err != nil {
+		writeErr(w, http.StatusForbidden, "not a member")
+		return
+	}
+
+	isAdmin := role == "owner" || role == "admin"
+	if !isAdmin && !memberInvitesEnabled {
+		writeErr(w, http.StatusForbidden, "members cannot create invites for this space")
 		return
 	}
 
 	code := randomCode(10)
 	var invite models.Invite
-	err := h.db.QueryRow(r.Context(), `
-		INSERT INTO invites (server_id, creator_id, code)
-		VALUES ($1, $2, $3)
+	// Admins/owners get permanent invites; members get a time-limited one.
+	err = h.db.QueryRow(r.Context(), `
+		INSERT INTO invites (server_id, creator_id, code, expires_at)
+		VALUES ($1, $2, $3, CASE WHEN $4 THEN NULL ELSE NOW() + make_interval(days => $5) END)
 		RETURNING id, server_id, code, expires_at, max_uses, use_count, created_at
-	`, serverID, userID, code).Scan(
+	`, serverID, userID, code, isAdmin, memberInviteExpiryDays).Scan(
 		&invite.ID, &invite.ServerID, &invite.Code, &invite.ExpiresAt, &invite.MaxUses, &invite.UseCount, &invite.CreatedAt,
 	)
 	if err != nil {
