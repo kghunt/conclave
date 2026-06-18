@@ -117,7 +117,7 @@
 		</div>
 		{#each group.members as m}
 			<div class="member">
-				<Avatar url={m.user.avatar_url} name={m.user.display_name} userId={m.user.id} size={32} />
+				<Avatar url={m.user.avatar_url} name={m.user.display_name} userId={m.user.id} size={32} showPresence />
 				<div class="member-info">
 					<span class="member-name">{m.user.display_name}</span>
 					<span class="role-badge role-{m.role}">

@@ -104,6 +104,7 @@ export const api = {
 	// space discovery
 	discoverServers: (q: string) =>
 		req<ServerDiscovery[]>('GET', `/servers/discover?q=${encodeURIComponent(q)}`),
+	getPresence: (serverId: string) => req<Record<string, string>>('GET', `/servers/${serverId}/presence`),
 
 	// instance admin
 	getAdminSettings: () => req<AdminSettings>('GET', '/admin/settings'),

@@ -87,6 +87,39 @@ func (h *WSHandler) onEvent(c *ws.Client, event ws.Event) {
 			"room":         body.Room,
 		})
 		h.hub.BroadcastExcept(body.Room, c, ws.Event{Type: "typing", Payload: payload})
+	case "presence":
+		var body struct {
+			Status string `json:"status"`
+		}
+		if err := json.Unmarshal(event.Payload, &body); err != nil {
+			return
+		}
+		if body.Status != "online" && body.Status != "away" {
+			return
+		}
+		h.hub.SetPresence(c.UserID(), body.Status)
+		go h.broadcastPresence(c.UserID(), body.Status)
+	}
+}
+
+func (h *WSHandler) RunPresenceBroadcaster() {
+	for change := range h.hub.PresenceChanges {
+		h.broadcastPresence(change.UserID, change.Status)
+	}
+}
+
+func (h *WSHandler) broadcastPresence(userID, status string) {
+	rows, err := h.db.Query(context.Background(),
+		`SELECT server_id FROM server_members WHERE user_id = $1`, userID)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	payload, _ := json.Marshal(map[string]string{"user_id": userID, "status": status})
+	for rows.Next() {
+		var serverID string
+		rows.Scan(&serverID)
+		h.hub.Broadcast("server:"+serverID, ws.Event{Type: "presence.update", Payload: payload})
 	}
 }
 

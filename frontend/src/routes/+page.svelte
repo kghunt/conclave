@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api, type Message, type DirectMessage } from '$lib/api';
 	import { socket } from '$lib/socket';
-	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent, instanceConfig, serverMembers, mentionedChannels } from '$lib/stores';
+	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent, instanceConfig, serverMembers, mentionedChannels, presenceMap } from '$lib/stores';
 	import type { ServerMember } from '$lib/api';
 	import ServerList from '$lib/components/ServerList.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
@@ -57,7 +57,7 @@
 		activeDM.set(null);
 	}
 
-	// Load channels + members when active server changes
+	// Load channels + members + presence when active server changes
 	$effect(() => {
 		const srv = $activeServer;
 		if (!srv) return;
@@ -69,6 +69,27 @@
 			if (ch?.length > 0 && !isMobile) activeChannel.set(ch[0]);
 		});
 		api.getMembers(id).then((ms) => serverMembers.set(ms ?? []));
+		api.getPresence(id).then((p) => presenceMap.update(m => ({ ...m, ...p })));
+
+		// Subscribe to server room for presence.update events
+		const room = 'server:' + id;
+		socket.subscribe(room);
+		const unsub = socket.on((event) => {
+			if (event.type === 'presence.update') {
+				presenceMap.update(m => ({ ...m, [event.payload.user_id]: event.payload.status }));
+			}
+		});
+		return () => { unsub(); socket.unsubscribe(room); };
+	});
+
+	// Send presence events when page visibility changes (away/online)
+	$effect(() => {
+		if (!$currentUser) return;
+		function onVisibility() {
+			socket.send('presence', { status: document.hidden ? 'away' : 'online' });
+		}
+		document.addEventListener('visibilitychange', onVisibility);
+		return () => document.removeEventListener('visibilitychange', onVisibility);
 	});
 
 	// Load messages and subscribe to WS when active channel changes
