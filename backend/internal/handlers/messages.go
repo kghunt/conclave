@@ -18,13 +18,15 @@ import (
 var mentionRe = regexp.MustCompile(`@(\w+)`)
 
 type MessagesHandler struct {
-	db   *pgxpool.Pool
-	hub  *ws.Hub
-	push *PushHandler
+	db        *pgxpool.Pool
+	hub       *ws.Hub
+	push      *PushHandler
+	uploadDir string
+	baseURL   string
 }
 
-func NewMessages(db *pgxpool.Pool, hub *ws.Hub, push *PushHandler) *MessagesHandler {
-	return &MessagesHandler{db: db, hub: hub, push: push}
+func NewMessages(db *pgxpool.Pool, hub *ws.Hub, push *PushHandler, uploadDir, baseURL string) *MessagesHandler {
+	return &MessagesHandler{db: db, hub: hub, push: push, uploadDir: uploadDir, baseURL: baseURL}
 }
 
 func (h *MessagesHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -278,6 +280,10 @@ func (h *MessagesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	channelID := chi.URLParam(r, "channelID")
 	userID := middleware.UserID(r)
 
+	// Read content first so we can clean up any uploaded media after deletion
+	var content string
+	h.db.QueryRow(r.Context(), `SELECT content FROM messages WHERE id=$1`, messageID).Scan(&content)
+
 	// Try author delete first
 	tag, err := h.db.Exec(r.Context(), `DELETE FROM messages WHERE id=$1 AND author_id=$2`, messageID, userID)
 	if err != nil || tag.RowsAffected() == 0 {
@@ -298,6 +304,8 @@ func (h *MessagesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	DeleteUploadedFile(h.uploadDir, h.baseURL, content)
 
 	payload, _ := json.Marshal(map[string]string{"id": messageID, "channel_id": channelID})
 	h.hub.Broadcast("channel:"+channelID, ws.Event{Type: "message.delete", Payload: payload})

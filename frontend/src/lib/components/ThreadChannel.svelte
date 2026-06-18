@@ -3,6 +3,7 @@
 	import { api, type Thread } from '$lib/api';
 	import { activeServer, activeChannel } from '$lib/stores';
 	import { socket } from '$lib/socket';
+	import EmojiPicker from './EmojiPicker.svelte';
 
 	interface Props {
 		onopen: (thread: Thread) => void;
@@ -12,6 +13,11 @@
 	let threads = $state<Thread[]>([]);
 	let showNew = $state(false);
 	let newTitle = $state('');
+	let newBody = $state('');
+	let showBodyEmoji = $state(false);
+	let uploading = $state(false);
+	let bodyTextarea: HTMLTextAreaElement;
+	let fileInput: HTMLInputElement;
 	let creating = $state(false);
 	let error = $state('');
 
@@ -48,15 +54,48 @@
 		creating = true;
 		error = '';
 		try {
-			const t = await api.createThread($activeServer.id, $activeChannel.id, newTitle.trim());
+			const t = await api.createThread($activeServer.id, $activeChannel.id, newTitle.trim(), newBody.trim() || undefined);
 			newTitle = '';
+			newBody = '';
 			showNew = false;
+			showBodyEmoji = false;
 			onopen(t);
 		} catch (e: any) {
 			error = e.message ?? 'Failed to create thread';
 		} finally {
 			creating = false;
 		}
+	}
+
+	async function uploadBodyImage(file: File) {
+		if (!file.type.startsWith('image/')) return;
+		uploading = true;
+		try {
+			const { url } = await api.uploadFile(file);
+			insertAtCursor(url);
+		} finally {
+			uploading = false;
+		}
+	}
+
+	function insertAtCursor(text: string) {
+		const el = bodyTextarea;
+		if (!el) { newBody += text; return; }
+		const start = el.selectionStart ?? newBody.length;
+		const end = el.selectionEnd ?? newBody.length;
+		newBody = newBody.slice(0, start) + text + newBody.slice(end);
+		setTimeout(() => {
+			el.focus();
+			el.selectionStart = el.selectionEnd = start + text.length;
+		}, 0);
+	}
+
+	function onBodyPaste(e: ClipboardEvent) {
+		const image = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith('image/'));
+		if (!image) return;
+		e.preventDefault();
+		const file = image.getAsFile();
+		if (file) uploadBodyImage(file);
 	}
 
 	function timeAgo(iso: string): string {
@@ -89,13 +128,54 @@
 				placeholder="Thread title…"
 				maxlength={120}
 				autofocus
-				onkeydown={(e) => { if (e.key === 'Enter') createThread(); if (e.key === 'Escape') showNew = false; }}
+				onkeydown={(e) => { if (e.key === 'Escape') { showNew = false; } }}
 			/>
+			<div class="body-area">
+				<textarea
+					bind:this={bodyTextarea}
+					bind:value={newBody}
+					placeholder="Add an opening message (optional)…"
+					rows="3"
+					disabled={uploading}
+					onpaste={onBodyPaste}
+					onkeydown={(e) => { if (e.key === 'Escape') showNew = false; }}
+				></textarea>
+				<div class="body-actions">
+					<button
+						class="action-icon"
+						title="Upload image"
+						disabled={uploading}
+						onclick={() => fileInput.click()}
+					>
+						{#if uploading}
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+						{:else}
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+						{/if}
+					</button>
+					<button
+						class="action-icon"
+						class:active={showBodyEmoji}
+						title="Emoji"
+						onclick={() => (showBodyEmoji = !showBodyEmoji)}
+					>
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 13s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+					</button>
+					{#if showBodyEmoji}
+						<EmojiPicker
+							onSelect={(emoji) => { insertAtCursor(emoji); showBodyEmoji = false; }}
+							onClose={() => (showBodyEmoji = false)}
+						/>
+					{/if}
+				</div>
+			</div>
+			<input bind:this={fileInput} type="file" accept="image/*" style="display:none"
+				onchange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) uploadBodyImage(f); (e.target as HTMLInputElement).value = ''; }} />
 			{#if error}<span class="form-error">{error}</span>{/if}
 			<div class="form-actions">
-				<button class="cancel-btn" onclick={() => (showNew = false)}>Cancel</button>
-				<button class="create-btn" onclick={createThread} disabled={creating || !newTitle.trim()}>
-					{creating ? 'Creating…' : 'Create'}
+				<button class="cancel-btn" onclick={() => { showNew = false; newBody = ''; showBodyEmoji = false; }}>Cancel</button>
+				<button class="create-btn" onclick={createThread} disabled={creating || uploading || !newTitle.trim()}>
+					{creating ? 'Creating…' : 'Create Thread'}
 				</button>
 			</div>
 		</div>
@@ -191,6 +271,48 @@
 		font-family: inherit;
 	}
 	.new-thread-form input:focus { border-color: var(--accent); }
+	.body-area {
+		display: flex;
+		flex-direction: column;
+		gap: 0;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		overflow: hidden;
+	}
+	.body-area textarea {
+		background: var(--bg-input);
+		border: none;
+		color: var(--text);
+		padding: 0.6rem 0.75rem;
+		font-size: 0.9rem;
+		outline: none;
+		font-family: inherit;
+		resize: none;
+		line-height: 1.45;
+	}
+	.body-area textarea:focus { outline: none; }
+	.body-area:focus-within { border-color: var(--accent); }
+	.body-actions {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		padding: 4px 6px;
+		background: var(--bg-panel);
+		border-top: 1px solid var(--border);
+		position: relative;
+	}
+	.action-icon {
+		background: none;
+		border: none;
+		color: var(--text-muted);
+		cursor: pointer;
+		padding: 4px 6px;
+		border-radius: 4px;
+		display: flex;
+		align-items: center;
+	}
+	.action-icon:hover, .action-icon.active { color: var(--accent); background: rgba(255,255,255,0.05); }
+	.action-icon:disabled { opacity: 0.4; cursor: not-allowed; }
 	.form-error { font-size: 0.8rem; color: #e04545; }
 	.form-actions {
 		display: flex;

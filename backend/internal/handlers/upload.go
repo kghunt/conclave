@@ -57,6 +57,21 @@ func UploadFile(uploadDir, baseURL string) http.HandlerFunc {
 	}
 }
 
+// DeleteUploadedFile removes a media file from disk if the message content is
+// a URL that points to our own upload directory. Safe against path traversal.
+func DeleteUploadedFile(uploadDir, baseURL, content string) {
+	prefix := baseURL + "/avatars/"
+	if !strings.HasPrefix(content, prefix) {
+		return
+	}
+	filename := strings.TrimSpace(content[len(prefix):])
+	// Reject anything with path separators or parent-directory segments
+	if filename == "" || strings.ContainsAny(filename, "/\\") || strings.Contains(filename, "..") {
+		return
+	}
+	_ = os.Remove(filepath.Join(uploadDir, filename))
+}
+
 var allowedImageExt = map[string]bool{
 	".jpg": true, ".jpeg": true, ".png": true,
 	".gif": true, ".webp": true,

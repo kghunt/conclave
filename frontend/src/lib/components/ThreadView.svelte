@@ -3,6 +3,7 @@
 	import { api, type Thread, type ThreadMessage } from '$lib/api';
 	import { currentUser } from '$lib/stores';
 	import { socket } from '$lib/socket';
+	import EmojiPicker from './EmojiPicker.svelte';
 
 	interface Props {
 		thread: Thread;
@@ -13,7 +14,11 @@
 	let messages = $state<ThreadMessage[]>([]);
 	let input = $state('');
 	let sending = $state(false);
+	let uploading = $state(false);
+	let showEmoji = $state(false);
 	let scrollEl: HTMLElement;
+	let textarea: HTMLTextAreaElement;
+	let fileInput: HTMLInputElement;
 
 	onMount(() => {
 		load();
@@ -47,6 +52,44 @@
 		} finally {
 			sending = false;
 		}
+	}
+
+	async function uploadAndSend(file: File) {
+		if (!file.type.startsWith('image/')) return;
+		uploading = true;
+		try {
+			const { url } = await api.uploadFile(file);
+			await api.sendThreadMessage(thread.id, url);
+		} finally {
+			uploading = false;
+		}
+	}
+
+	function insertEmoji(emoji: string) {
+		const el = textarea;
+		if (!el) { input += emoji; return; }
+		const start = el.selectionStart ?? input.length;
+		const end = el.selectionEnd ?? input.length;
+		input = input.slice(0, start) + emoji + input.slice(end);
+		setTimeout(() => {
+			el.focus();
+			el.selectionStart = el.selectionEnd = start + emoji.length;
+		}, 0);
+	}
+
+	function onPaste(e: ClipboardEvent) {
+		const image = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith('image/'));
+		if (!image) return;
+		e.preventDefault();
+		const file = image.getAsFile();
+		if (file) uploadAndSend(file);
+	}
+
+	function onBeforeInput(e: InputEvent) {
+		const file = e.dataTransfer?.files?.[0];
+		if (!file?.type.startsWith('image/')) return;
+		e.preventDefault();
+		uploadAndSend(file);
 	}
 
 	function fmt(iso: string): string {
@@ -101,13 +144,44 @@
 	</div>
 
 	<div class="tv-input-row">
-		<input
+		<div class="tv-input-actions">
+			<button
+				class="action-icon"
+				title="Upload image"
+				disabled={uploading || sending}
+				onclick={() => fileInput.click()}
+			>
+				{#if uploading}
+					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+				{:else}
+					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+				{/if}
+			</button>
+			<button
+				class="action-icon"
+				class:active={showEmoji}
+				title="Emoji"
+				onclick={() => (showEmoji = !showEmoji)}
+			>
+				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 13s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+			</button>
+			{#if showEmoji}
+				<EmojiPicker onSelect={(e) => { insertEmoji(e); showEmoji = false; }} onClose={() => (showEmoji = false)} />
+			{/if}
+		</div>
+		<input bind:this={fileInput} type="file" accept="image/*" style="display:none"
+			onchange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) uploadAndSend(f); (e.target as HTMLInputElement).value = ''; }} />
+		<textarea
+			bind:this={textarea}
 			bind:value={input}
 			placeholder="Reply in thread…"
-			disabled={sending}
+			rows="1"
+			disabled={sending || uploading}
+			onpaste={onPaste}
+			onbeforeinput={onBeforeInput}
 			onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-		/>
-		<button class="send-btn" onclick={send} disabled={sending || !input.trim()}>
+		></textarea>
+		<button class="send-btn" onclick={send} disabled={sending || uploading || !input.trim()} aria-label="Send">
 			<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
 		</button>
 	</div>
@@ -230,13 +304,33 @@
 	}
 	.tv-input-row {
 		display: flex;
-		gap: 0.5rem;
+		align-items: flex-end;
+		gap: 0.4rem;
 		padding: 0.75rem 1rem;
 		border-top: 1px solid var(--border);
 		background: var(--bg-panel);
 		flex-shrink: 0;
 	}
-	.tv-input-row input {
+	.tv-input-actions {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		flex-shrink: 0;
+		position: relative;
+	}
+	.action-icon {
+		background: none;
+		border: none;
+		color: var(--text-muted);
+		cursor: pointer;
+		padding: 5px;
+		border-radius: 4px;
+		display: flex;
+		align-items: center;
+	}
+	.action-icon:hover, .action-icon.active { color: var(--accent); background: rgba(255,255,255,0.05); }
+	.action-icon:disabled { opacity: 0.4; cursor: not-allowed; }
+	.tv-input-row textarea {
 		flex: 1;
 		background: var(--bg-input);
 		border: 1px solid var(--border);
@@ -246,8 +340,12 @@
 		font-size: 0.9rem;
 		outline: none;
 		font-family: inherit;
+		resize: none;
+		line-height: 1.45;
+		max-height: 150px;
+		overflow-y: auto;
 	}
-	.tv-input-row input:focus { border-color: var(--accent); }
+	.tv-input-row textarea:focus { border-color: var(--accent); }
 	.send-btn {
 		background: var(--accent);
 		border: none;

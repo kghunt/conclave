@@ -74,7 +74,8 @@ func (h *ThreadsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Title string `json:"title"`
+		Title          string `json:"title"`
+		InitialMessage string `json:"initial_message"`
 	}
 	if err := decodeJSON(r, &body); err != nil || body.Title == "" {
 		writeErr(w, http.StatusBadRequest, "title required")
@@ -101,6 +102,12 @@ func (h *ThreadsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "create failed")
 		return
+	}
+
+	if body.InitialMessage != "" {
+		h.db.Exec(r.Context(), `INSERT INTO thread_messages (thread_id, author_id, content) VALUES ($1, $2, $3)`, t.ID, userID, body.InitialMessage)
+		h.db.Exec(r.Context(), `UPDATE threads SET message_count = 1, last_message_at = NOW() WHERE id = $1`, t.ID)
+		t.MessageCount = 1
 	}
 
 	payload, _ := json.Marshal(t)

@@ -55,8 +55,8 @@ export const api = {
 		req<Record<string, VoicePeer[]>>('GET', `/servers/${serverId}/voice`),
 	listThreads: (serverId: string, channelId: string) =>
 		req<Thread[]>('GET', `/servers/${serverId}/channels/${channelId}/threads`),
-	createThread: (serverId: string, channelId: string, title: string) =>
-		req<Thread>('POST', `/servers/${serverId}/channels/${channelId}/threads`, { title }),
+	createThread: (serverId: string, channelId: string, title: string, initialMessage?: string) =>
+		req<Thread>('POST', `/servers/${serverId}/channels/${channelId}/threads`, { title, initial_message: initialMessage || undefined }),
 	listThreadMessages: (threadId: string) =>
 		req<ThreadMessage[]>('GET', `/threads/${threadId}/messages`),
 	sendThreadMessage: (threadId: string, content: string) =>
