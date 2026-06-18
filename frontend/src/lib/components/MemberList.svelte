@@ -63,7 +63,7 @@
 		} else {
 			await api.assignRole(serverId, m.user.id, role.id);
 		}
-		// Refresh member list to pick up new role assignments
+		roleMenuMember = null;
 		members = await api.getMembers(serverId);
 	}
 
