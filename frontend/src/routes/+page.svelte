@@ -297,6 +297,9 @@
 		height: 100dvh;
 		overflow: hidden;
 	}
+	@media (max-width: 767px) {
+		.app { flex-direction: column; }
+	}
 	.main {
 		flex: 1;
 		display: flex;
