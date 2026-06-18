@@ -203,6 +203,14 @@
 		}
 	}
 
+	async function deleteChannel(ch: Channel) {
+		if (!$activeServer) return;
+		if (!confirm(`Delete #${ch.name}? This cannot be undone.`)) return;
+		await api.deleteChannel($activeServer.id, ch.id);
+		channels.update((prev) => prev.filter((c) => c.id !== ch.id));
+		if ($activeChannel?.id === ch.id) activeChannel.set(null);
+	}
+
 	async function createChannel() {
 		if (!newChannelName.trim() || !$activeServer) return;
 		const ch = await api.createChannel($activeServer.id, { name: newChannelName, description: '', type: newChannelType });
@@ -266,18 +274,23 @@
 		{/if}
 
 		{#each $channels.filter((c) => c.type !== 'voice') as ch}
-			<button
-				class="channel-item"
-				class:active={$activeChannel?.id === ch.id}
-				onclick={() => selectChannel(ch)}
-			>
-				<span># {ch.name}</span>
-				{#if $mentionedChannels.has(ch.id)}
-					<span class="badge mention-badge">@</span>
-				{:else if ch.unread_count > 0}
-					<span class="badge">{ch.unread_count}</span>
+			<div class="channel-row">
+				<button
+					class="channel-item"
+					class:active={$activeChannel?.id === ch.id}
+					onclick={() => selectChannel(ch)}
+				>
+					<span># {ch.name}</span>
+					{#if $mentionedChannels.has(ch.id)}
+						<span class="badge mention-badge">@</span>
+					{:else if ch.unread_count > 0}
+						<span class="badge">{ch.unread_count}</span>
+					{/if}
+				</button>
+				{#if $activeServer?.role === 'owner' || $activeServer?.role === 'admin'}
+					<button class="ch-delete-btn" onclick={() => deleteChannel(ch)} title="Delete channel">✕</button>
 				{/if}
-			</button>
+			</div>
 		{/each}
 
 		{#if $channels.some((c) => c.type === 'voice')}
@@ -287,17 +300,22 @@
 			{#each $channels.filter((c) => c.type === 'voice') as ch}
 				{@const peers = $voiceParticipants[ch.id] ?? []}
 				{@const inThisChannel = $voiceState.channelId === ch.id}
-				<button
-					class="channel-item voice-channel-item"
-					class:active={inThisChannel}
-					onclick={() => handleVoiceChannelClick(ch)}
-				>
-					<span class="voice-ch-icon">🔊</span>
-					<span class="voice-ch-name">{ch.name}</span>
-					{#if peers.length > 0}
-						<span class="voice-count">{peers.length}</span>
+				<div class="channel-row">
+					<button
+						class="channel-item voice-channel-item"
+						class:active={inThisChannel}
+						onclick={() => handleVoiceChannelClick(ch)}
+					>
+						<span class="voice-ch-icon">🔊</span>
+						<span class="voice-ch-name">{ch.name}</span>
+						{#if peers.length > 0}
+							<span class="voice-count">{peers.length}</span>
+						{/if}
+					</button>
+					{#if $activeServer?.role === 'owner' || $activeServer?.role === 'admin'}
+						<button class="ch-delete-btn" onclick={() => deleteChannel(ch)} title="Delete channel">✕</button>
 					{/if}
-				</button>
+				</div>
 				{#if peers.length > 0}
 					<div class="voice-participant-list">
 						{#each peers as peer}
@@ -707,6 +725,32 @@
 		opacity: 0.8;
 	}
 	.admin-btn:hover { opacity: 1; background: rgba(232,84,30,0.15); }
+	.channel-row {
+		display: flex;
+		align-items: center;
+		margin: 0 0.25rem;
+	}
+	.channel-row .channel-item {
+		margin: 0;
+		width: auto;
+		flex: 1;
+		min-width: 0;
+	}
+	.ch-delete-btn {
+		background: none;
+		border: none;
+		color: var(--text-muted);
+		cursor: pointer;
+		font-size: 0.7rem;
+		padding: 0.2rem 0.3rem;
+		border-radius: 3px;
+		opacity: 0;
+		flex-shrink: 0;
+		transition: opacity 0.1s;
+	}
+	.channel-row:hover .ch-delete-btn { opacity: 1; }
+	.ch-delete-btn:hover { color: #e04545; background: rgba(224,69,69,0.1); }
+	@media (max-width: 767px) { .ch-delete-btn { opacity: 1; } }
 	.new-channel-type {
 		display: flex;
 		gap: 2px;
