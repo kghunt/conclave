@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api, type User } from '$lib/api';
-	import { activeServer, servers, channels, activeChannel, dmConversations, activeDM, currentUser, showProfileModal, friends, friendRequests, friendRequestsSent } from '$lib/stores';
+	import { activeServer, servers, channels, activeChannel, dmConversations, activeDM, currentUser, showProfileModal, friends, friendRequests, friendRequestsSent, mentionedChannels } from '$lib/stores';
 	import { socket } from '$lib/socket';
 	import type { Channel } from '$lib/api';
 	import Avatar from './Avatar.svelte';
@@ -163,6 +163,7 @@
 	function selectChannel(ch: Channel) {
 		activeDM.set(null);
 		activeChannel.set(ch);
+		mentionedChannels.update(s => { s.delete(ch.id); return new Set(s); });
 	}
 
 	async function createChannel() {
@@ -221,7 +222,9 @@
 				onclick={() => selectChannel(ch)}
 			>
 				<span># {ch.name}</span>
-				{#if ch.unread_count > 0}
+				{#if $mentionedChannels.has(ch.id)}
+					<span class="badge mention-badge">@</span>
+				{:else if ch.unread_count > 0}
 					<span class="badge">{ch.unread_count}</span>
 				{/if}
 			</button>
@@ -438,6 +441,9 @@
 		font-weight: 700;
 		border-radius: 8px;
 		padding: 0.1rem 0.4rem;
+	}
+	.mention-badge {
+		background: var(--accent);
 	}
 	.req-badge {
 		background: #e04545;

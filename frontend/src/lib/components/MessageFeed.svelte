@@ -1,9 +1,26 @@
 <script lang="ts">
-	import { currentUser, activeServer, activeChannel, activeDM } from '$lib/stores';
+	import { currentUser, activeServer, activeChannel, activeDM, serverMembers } from '$lib/stores';
 	import { api, type Message, type DirectMessage } from '$lib/api';
 	import Avatar from './Avatar.svelte';
 
 	type AnyMessage = Message | DirectMessage;
+
+	// Set of lowercased handles (display_name with spaces→_) for highlight matching
+	let memberHandles = $derived(new Set(
+		$serverMembers.map(m => m.user.display_name.replace(/\s+/g, '_').toLowerCase())
+	));
+
+	function renderContent(text: string): string {
+		const escaped = text
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;');
+		return escaped.replace(/@(\w+)/g, (match, handle) =>
+			memberHandles.has(handle.toLowerCase())
+				? `<span class="mention">${match}</span>`
+				: match
+		);
+	}
 
 	let {
 		messages,
@@ -127,7 +144,7 @@
 					{:else if isImageUrl(msg.content)}
 						<img src={msg.content} alt="uploaded" class="msg-image" loading="lazy" />
 					{:else}
-						<p>{msg.content}</p>
+						<p>{@html renderContent(msg.content)}</p>
 					{/if}
 				</div>
 			{:else}
@@ -145,7 +162,7 @@
 					{:else if isImageUrl(msg.content)}
 						<img src={msg.content} alt="uploaded" class="msg-image" loading="lazy" />
 					{:else}
-						<p>{msg.content}</p>
+						<p>{@html renderContent(msg.content)}</p>
 					{/if}
 				</div>
 			{/if}
@@ -219,6 +236,13 @@
 		line-height: 1.5;
 		white-space: pre-wrap;
 		word-break: break-word;
+	}
+	:global(.mention) {
+		color: var(--accent);
+		background: color-mix(in srgb, var(--accent) 15%, transparent);
+		border-radius: 3px;
+		padding: 0 3px;
+		font-weight: 600;
 	}
 	.msg-image {
 		max-width: min(480px, 100%);
