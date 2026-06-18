@@ -119,6 +119,10 @@ export async function joinVoice(chId: string, srvId: string): Promise<void> {
 	channelId = chId;
 	voiceState.set({ channelId: chId, serverId: srvId, muted: false, connecting: true, peers: [] });
 
+	// Subscribe to the channel room so the backend's HasRoom check passes
+	// and so we receive voice.joined/voice.left broadcasts for this channel
+	socket.subscribe('channel:' + chId);
+
 	// Listen for voice WS events
 	wsUnsubscribe = socket.on((event) => {
 		if (event.type === 'voice.state') {
@@ -213,7 +217,9 @@ async function handleSignal(fromId: string, signal: IncomingSignal) {
 
 export function leaveVoice() {
 	if (!channelId) return;
-	socket.send('voice.leave', { channel_id: channelId });
+	const ch = channelId;
+	socket.send('voice.leave', { channel_id: ch });
+	socket.unsubscribe('channel:' + ch);
 	wsUnsubscribe?.();
 	wsUnsubscribe = null;
 	cleanupAllPeers();
