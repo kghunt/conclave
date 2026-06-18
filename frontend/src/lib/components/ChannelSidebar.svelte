@@ -296,7 +296,10 @@
 					class="desc-input"
 					onkeydown={(e) => e.key === 'Enter' && createChannel()}
 				/>
-				<button class="add-channel-btn" onclick={createChannel}>Add</button>
+				<div class="new-channel-actions">
+					<button class="cancel-channel-btn" onclick={() => { showNewChannel = false; newChannelName = ''; newChannelDesc = ''; newChannelType = 'text'; }}>Cancel</button>
+					<button class="add-channel-btn" onclick={createChannel}>Add</button>
+				</div>
 			</div>
 		{/if}
 
@@ -569,8 +572,22 @@
 		font-size: 0.78rem;
 		opacity: 0.8;
 	}
+	.new-channel-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 0.4rem;
+	}
+	.cancel-channel-btn {
+		background: none;
+		border: 1px solid var(--border);
+		color: var(--text-muted);
+		padding: 0.25rem 0.6rem;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.82rem;
+	}
+	.cancel-channel-btn:hover { color: var(--text); }
 	.add-channel-btn {
-		align-self: flex-end;
 		background: var(--accent);
 		border: none;
 		color: white;
