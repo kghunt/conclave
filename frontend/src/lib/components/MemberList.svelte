@@ -75,13 +75,18 @@
 				const fr = await api.listFriends();
 				friends.set(fr ?? []);
 			}
-		} catch (e) {
-			console.error('addFriend failed:', e);
-			addFriendState = { ...addFriendState, [userId]: 'error' };
-			setTimeout(() => {
-				const { [userId]: _, ...rest } = addFriendState;
-				addFriendState = rest;
-			}, 2000);
+		} catch (e: any) {
+			// "request already sent" means it worked before — show sent, not error
+			if (e?.message?.includes('already sent') || e?.message?.includes('already friends')) {
+				addFriendState = { ...addFriendState, [userId]: 'sent' };
+			} else {
+				console.error('addFriend failed:', e);
+				addFriendState = { ...addFriendState, [userId]: 'error' };
+				setTimeout(() => {
+					const { [userId]: _, ...rest } = addFriendState;
+					addFriendState = rest;
+				}, 2000);
+			}
 		}
 	}
 
@@ -130,6 +135,7 @@
 								class="action-btn"
 								onclick={() => addFriend(m.user.id)}
 								disabled={reqState === 'sending' || reqState === 'sent'}
+								data-state={reqState ?? 'idle'}
 								title={reqState === 'sent' ? 'Request sent' : reqState === 'error' ? 'Failed — try again' : 'Add friend'}
 							>
 								{#if reqState === 'sent'}
@@ -235,6 +241,9 @@
 		flex-shrink: 0;
 	}
 	.member:hover .member-actions { opacity: 1; }
+	/* always show sent/error feedback even when not hovering */
+	.member-actions:has(.action-btn[data-state="sent"]),
+	.member-actions:has(.action-btn[data-state="error"]) { opacity: 1; }
 	.action-btn {
 		background: none;
 		border: none;
