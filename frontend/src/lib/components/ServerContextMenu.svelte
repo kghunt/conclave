@@ -25,6 +25,11 @@
 	// Icon upload
 	let iconInput: HTMLInputElement;
 
+	// Delete state
+	let showDeleteConfirm = $state(false);
+	let deleteConfirmName = $state('');
+	let deleting = $state(false);
+
 	async function saveEdit() {
 		if (saving) return;
 		saving = true;
@@ -75,12 +80,74 @@
 		}
 		onclose();
 	}
+
+	async function deleteServer() {
+		if (deleteConfirmName !== server.name || deleting) return;
+		deleting = true;
+		try {
+			await api.deleteServer(server.id);
+			servers.update((prev) => prev.filter((s) => s.id !== server.id));
+			if ($activeServer?.id === server.id) {
+				activeServer.set(null);
+				activeChannel.set(null);
+				channels.set([]);
+			}
+			onclose();
+		} finally {
+			deleting = false;
+		}
+	}
 </script>
 
 <!-- click-outside overlay -->
 <div class="overlay" onclick={onclose}></div>
 
-{#if !showEdit}
+{#if showDeleteConfirm}
+	<div class="menu edit-menu" style="left:{x}px; top:{y}px">
+		<div class="menu-header">Delete Space</div>
+		<p class="delete-warning">Permanently deletes <strong>{server.name}</strong> and all its channels and messages. This cannot be undone.</p>
+		<label>
+			Type the space name to confirm
+			<input
+				bind:value={deleteConfirmName}
+				placeholder={server.name}
+				onkeydown={(e) => e.key === 'Enter' && deleteServer()}
+			/>
+		</label>
+		<div class="edit-actions">
+			<button class="cancel" onclick={() => (showDeleteConfirm = false)}>Back</button>
+			<button
+				class="delete-btn"
+				onclick={deleteServer}
+				disabled={deleteConfirmName !== server.name || deleting}
+			>
+				{deleting ? 'Deleting…' : 'Delete'}
+			</button>
+		</div>
+	</div>
+{:else if showEdit}
+	<div class="menu edit-menu" style="left:{x}px; top:{y}px">
+		<div class="menu-header">Edit Space</div>
+		<label>
+			Name
+			<input bind:value={editName} />
+		</label>
+		<label>
+			Description
+			<textarea bind:value={editDesc} rows="2"></textarea>
+		</label>
+		<label class="checkbox-label">
+			<input type="checkbox" bind:checked={editPublic} />
+			Public (anyone can join)
+		</label>
+		<div class="edit-actions">
+			<button class="cancel" onclick={() => (showEdit = false)}>Back</button>
+			<button class="save" onclick={saveEdit} disabled={saving || !editName.trim()}>
+				{saving ? 'Saving…' : 'Save'}
+			</button>
+		</div>
+	</div>
+{:else}
 	<div class="menu" style="left:{x}px; top:{y}px">
 		<div class="menu-header">{server.name}</div>
 
@@ -104,28 +171,11 @@
 		{#if server.role !== 'owner'}
 			<button class="danger" onclick={leaveServer}>Leave Space</button>
 		{/if}
-	</div>
-{:else}
-	<div class="menu edit-menu" style="left:{x}px; top:{y}px">
-		<div class="menu-header">Edit Space</div>
-		<label>
-			Name
-			<input bind:value={editName} />
-		</label>
-		<label>
-			Description
-			<textarea bind:value={editDesc} rows="2"></textarea>
-		</label>
-		<label class="checkbox-label">
-			<input type="checkbox" bind:checked={editPublic} />
-			Public (anyone can join)
-		</label>
-		<div class="edit-actions">
-			<button class="cancel" onclick={() => (showEdit = false)}>Back</button>
-			<button class="save" onclick={saveEdit} disabled={saving || !editName.trim()}>
-				{saving ? 'Saving…' : 'Save'}
-			</button>
-		</div>
+
+		{#if server.role === 'owner'}
+			<div class="separator"></div>
+			<button class="danger" onclick={() => { deleteConfirmName = ''; showDeleteConfirm = true; }}>Delete Space</button>
+		{/if}
 	</div>
 {/if}
 
@@ -170,6 +220,11 @@
 	.menu button:hover { background: rgba(255,255,255,0.08); }
 	.menu button.danger { color: #e04545; }
 	.menu button.danger:hover { background: rgba(224,69,69,0.1); }
+	.separator {
+		height: 1px;
+		background: #2e2e38;
+		margin: 0.25rem 0;
+	}
 
 	.invite-row {
 		display: flex;
@@ -194,7 +249,7 @@
 		border-radius: 3px !important;
 	}
 
-	/* Edit form */
+	/* Edit / delete forms */
 	.edit-menu { min-width: 260px; }
 	label {
 		display: flex;
@@ -224,6 +279,13 @@
 		gap: 0.5rem !important;
 		cursor: pointer;
 	}
+	.delete-warning {
+		padding: 0.375rem 0.625rem;
+		font-size: 0.8rem;
+		color: #aaa;
+		line-height: 1.5;
+	}
+	.delete-warning strong { color: #f0eff4; }
 	.edit-actions {
 		display: flex;
 		justify-content: flex-end;
@@ -248,4 +310,15 @@
 		font-size: 0.875rem;
 	}
 	.save:disabled { opacity: 0.5; cursor: not-allowed; }
+	.delete-btn {
+		background: #e04545 !important;
+		border: none;
+		color: white !important;
+		padding: 0.4rem 0.875rem !important;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.875rem;
+		font-weight: 600;
+	}
+	.delete-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 </style>
