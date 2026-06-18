@@ -11,6 +11,10 @@
 	let busy = $state<Record<string, boolean>>({});
 	let debounceTimer: ReturnType<typeof setTimeout>;
 
+	// Rules acceptance modal
+	let rulesSpace = $state<ServerDiscovery | null>(null);
+	let rulesAccepted = $state(false);
+
 	async function search(q: string) {
 		loading = true;
 		try {
@@ -27,8 +31,27 @@
 		debounceTimer = setTimeout(() => search(query), 300);
 	}
 
-	async function join(space: ServerDiscovery) {
+	function tryJoin(space: ServerDiscovery) {
 		if (busy[space.id] || space.is_member) return;
+		if (space.rules) { rulesSpace = space; rulesAccepted = false; return; }
+		doJoin(space);
+	}
+
+	function tryRequest(space: ServerDiscovery) {
+		if (busy[space.id] || space.has_pending_request) return;
+		if (space.rules) { rulesSpace = space; rulesAccepted = false; return; }
+		doRequest(space);
+	}
+
+	function acceptRules() {
+		if (!rulesSpace || !rulesAccepted) return;
+		const space = rulesSpace;
+		rulesSpace = null;
+		if (space.requires_request) doRequest(space);
+		else doJoin(space);
+	}
+
+	async function doJoin(space: ServerDiscovery) {
 		busy = { ...busy, [space.id]: true };
 		try {
 			await api.joinServer(space.id);
@@ -49,8 +72,7 @@
 		}
 	}
 
-	async function requestJoin(space: ServerDiscovery) {
-		if (busy[space.id] || space.has_pending_request) return;
+	async function doRequest(space: ServerDiscovery) {
 		busy = { ...busy, [space.id]: true };
 		try {
 			await api.requestJoinServer(space.id);
@@ -83,6 +105,31 @@
 	// Load all discoverable spaces on open
 	search('');
 </script>
+
+{#if rulesSpace}
+	<div class="overlay" role="presentation">
+		<div class="rules-modal" role="dialog" aria-label="Space rules">
+			<div class="rules-header">
+				<h2>Rules for {rulesSpace.name}</h2>
+			</div>
+			<div class="rules-body">
+				<pre class="rules-text">{rulesSpace.rules}</pre>
+			</div>
+			<div class="rules-footer">
+				<label class="rules-accept">
+					<input type="checkbox" bind:checked={rulesAccepted} />
+					I have read and agree to these rules
+				</label>
+				<div class="rules-actions">
+					<button class="cancel-btn" onclick={() => (rulesSpace = null)}>Cancel</button>
+					<button class="accept-btn" disabled={!rulesAccepted} onclick={acceptRules}>
+						{rulesSpace.requires_request ? 'Accept & Request' : 'Accept & Join'}
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <div class="overlay" onclick={onclose} role="presentation">
 	<div class="panel" onclick={(e) => e.stopPropagation()} role="dialog" aria-label="Browse public spaces">
@@ -134,7 +181,7 @@
 								class="join-btn"
 								class:requested={space.has_pending_request}
 								disabled={space.has_pending_request || busy[space.id]}
-								onclick={() => requestJoin(space)}
+								onclick={() => tryRequest(space)}
 							>
 								{#if busy[space.id]}Requesting…{:else if space.has_pending_request}Requested{:else}Request{/if}
 							</button>
@@ -142,7 +189,7 @@
 							<button
 								class="join-btn"
 								disabled={busy[space.id]}
-								onclick={() => join(space)}
+								onclick={() => tryJoin(space)}
 							>
 								{busy[space.id] ? 'Joining…' : 'Join'}
 							</button>
@@ -296,4 +343,78 @@
 		margin-left: 0.4rem;
 		font-weight: 400;
 	}
+	.rules-modal {
+		background: var(--bg-panel);
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		width: 520px;
+		max-width: calc(100vw - 2rem);
+		max-height: 80vh;
+		display: flex;
+		flex-direction: column;
+		z-index: 310;
+	}
+	.rules-header {
+		padding: 1.25rem 1.5rem;
+		border-bottom: 1px solid var(--border);
+		flex-shrink: 0;
+	}
+	.rules-header h2 { color: var(--text); font-size: 1.05rem; margin: 0; }
+	.rules-body {
+		flex: 1;
+		overflow-y: auto;
+		padding: 1.25rem 1.5rem;
+	}
+	.rules-text {
+		white-space: pre-wrap;
+		word-break: break-word;
+		font-family: inherit;
+		font-size: 0.875rem;
+		color: var(--text);
+		line-height: 1.6;
+		margin: 0;
+	}
+	.rules-footer {
+		border-top: 1px solid var(--border);
+		padding: 1rem 1.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		flex-shrink: 0;
+	}
+	.rules-accept {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.875rem;
+		color: var(--text);
+		cursor: pointer;
+	}
+	.rules-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 0.5rem;
+	}
+	.cancel-btn {
+		background: none;
+		border: 1px solid var(--border);
+		color: var(--text-muted);
+		padding: 0.45rem 0.9rem;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 0.875rem;
+	}
+	.cancel-btn:hover { color: var(--text); }
+	.accept-btn {
+		background: var(--accent);
+		border: none;
+		color: white;
+		padding: 0.45rem 1rem;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 0.875rem;
+		font-weight: 600;
+	}
+	.accept-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+	.accept-btn:not(:disabled):hover { filter: brightness(1.1); }
 </style>
