@@ -197,8 +197,8 @@
 					{#if $activeDM}@ {$activeDM.other_user.display_name}{/if}
 				</span>
 				<div class="header-actions">
-					{#if $activeChannel && !isMobile}
-						<button onclick={() => (showMembers = !showMembers)} class="icon-btn" title="Members">
+					{#if $activeChannel}
+						<button onclick={() => (showMembers = !showMembers)} class="icon-btn" class:active={showMembers && isMobile} title="Members">
 							&#128101;
 						</button>
 					{/if}
@@ -251,8 +251,18 @@
 			</div>
 		</main>
 
-		{#if showMembers && $activeChannel && $activeServer && !isMobile}
-			<MemberList serverId={$activeServer.id} />
+		{#if showMembers && $activeChannel && $activeServer}
+			{#if isMobile}
+				<div class="members-overlay">
+					<div class="members-overlay-header">
+						<span>Members</span>
+						<button onclick={() => (showMembers = false)}>✕</button>
+					</div>
+					<MemberList serverId={$activeServer.id} />
+				</div>
+			{:else}
+				<MemberList serverId={$activeServer.id} />
+			{/if}
 		{/if}
 	{/if}
 </div>
@@ -365,8 +375,38 @@
 	}
 	textarea:disabled { opacity: 0.5; cursor: not-allowed; }
 
+	.members-overlay {
+		display: none;
+	}
 	@media (max-width: 767px) {
 		textarea { font-size: 16px; /* prevents iOS zoom on focus */ }
 		.input-area { padding: 0.5rem; }
+		.icon-btn.active { color: #e8541e; opacity: 1; }
+		.members-overlay {
+			display: flex;
+			flex-direction: column;
+			position: fixed;
+			inset: 0;
+			z-index: 50;
+			background: #19191d;
+		}
+		.members-overlay-header {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			padding: 0 1rem;
+			height: 48px;
+			border-bottom: 1px solid #0e0e10;
+			font-weight: 700;
+			flex-shrink: 0;
+		}
+		.members-overlay-header button {
+			background: none;
+			border: none;
+			color: #8b8b99;
+			cursor: pointer;
+			font-size: 1rem;
+			padding: 0.25rem;
+		}
 	}
 </style>
