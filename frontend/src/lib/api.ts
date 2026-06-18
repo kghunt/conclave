@@ -81,6 +81,14 @@ export const api = {
 	sendDM: (convId: string, content: string) =>
 		req<DirectMessage>('POST', `/dms/conversations/${convId}/messages`, { content }),
 
+	// friends
+	listFriends: () => req<FriendEntry[]>('GET', '/friends'),
+	listFriendRequests: () => req<FriendEntry[]>('GET', '/friends/requests'),
+	sendFriendRequest: (userId: string) => req<{ status: string }>('POST', `/friends/request/${userId}`),
+	acceptFriendRequest: (userId: string) => req<void>('POST', `/friends/accept/${userId}`),
+	removeFriend: (userId: string) => req<void>('DELETE', `/friends/${userId}`),
+	searchUsers: (q: string) => req<User[]>('GET', `/users/search?q=${encodeURIComponent(q)}`),
+
 	// push notifications
 	getPushKey: () => req<{ public_key: string }>('GET', '/push/key'),
 	pushSubscribe: (sub: { endpoint: string; p256dh: string; auth: string }) =>
@@ -174,6 +182,11 @@ export interface ServerMember {
 	user: User;
 	role: string;
 	joined_at: string;
+}
+
+export interface FriendEntry {
+	user: User;
+	since: string;
 }
 
 export interface Invite {

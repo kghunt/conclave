@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api, type Message, type DirectMessage } from '$lib/api';
 	import { socket } from '$lib/socket';
-	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal } from '$lib/stores';
+	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests } from '$lib/stores';
 	import ServerList from '$lib/components/ServerList.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
 	import MessageFeed from '$lib/components/MessageFeed.svelte';
@@ -23,10 +23,16 @@
 		mq.addEventListener('change', handler);
 
 		(async () => {
-			const s = await api.listServers();
+			const [s, convs, fr, reqs] = await Promise.all([
+				api.listServers(),
+				api.listConversations(),
+				api.listFriends(),
+				api.listFriendRequests()
+			]);
 			servers.set(s ?? []);
-			const convs = await api.listConversations();
 			dmConversations.set(convs ?? []);
+			friends.set(fr ?? []);
+			friendRequests.set(reqs ?? []);
 		})();
 
 		return () => mq.removeEventListener('change', handler);

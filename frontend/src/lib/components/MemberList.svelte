@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api, type ServerMember } from '$lib/api';
-	import { activeServer, currentUser, activeDM, activeChannel, dmConversations } from '$lib/stores';
+	import { activeServer, currentUser, activeDM, activeChannel, dmConversations, friends } from '$lib/stores';
 	import Avatar from './Avatar.svelte';
 
 	let { serverId, onDmStarted }: { serverId: string; onDmStarted?: () => void } = $props();
@@ -47,6 +47,29 @@
 
 	const isOwner = $derived($activeServer?.role === 'owner');
 
+	let addFriendState = $state<Record<string, 'idle' | 'sending' | 'sent' | 'friends'>>({});
+
+	$effect(() => {
+		const ids = new Set($friends.map((f) => f.user.id));
+		const next: Record<string, 'idle' | 'sending' | 'sent' | 'friends'> = {};
+		members.forEach((m) => {
+			if (ids.has(m.user.id)) next[m.user.id] = 'friends';
+		});
+		addFriendState = next;
+	});
+
+	async function addFriend(userId: string) {
+		addFriendState = { ...addFriendState, [userId]: 'sending' };
+		try {
+			await api.sendFriendRequest(userId);
+			addFriendState = { ...addFriendState, [userId]: 'sent' };
+			const fr = await api.listFriends();
+			friends.set(fr ?? []);
+		} catch {
+			addFriendState = { ...addFriendState, [userId]: 'idle' };
+		}
+	}
+
 	async function startDM(member: ServerMember) {
 		const conv = await api.getOrCreateDM(member.user.id);
 		dmConversations.update((prev) => {
@@ -82,10 +105,25 @@
 					</span>
 				</div>
 				{#if m.user.id !== $currentUser?.id}
+					{@const fs = addFriendState[m.user.id] ?? 'idle'}
 					<div class="member-actions">
 						<button class="action-btn" onclick={() => startDM(m)} title="Send message">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
 						</button>
+						{#if fs !== 'friends'}
+							<button
+								class="action-btn"
+								onclick={() => addFriend(m.user.id)}
+								disabled={fs === 'sending' || fs === 'sent'}
+								title={fs === 'sent' ? 'Request sent' : 'Add friend'}
+							>
+								{#if fs === 'sent'}
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#44c97d" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+								{:else}
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+								{/if}
+							</button>
+						{/if}
 						{#if isOwner && m.role !== 'owner'}
 							<button class="action-btn" onclick={(e) => { e.stopPropagation(); menuMember = menuMember?.user.id === m.user.id ? null : m; }} title="Manage role">
 								⋯
