@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { api, type Server, type Invite } from '$lib/api';
-	import { servers, activeServer, channels, activeChannel } from '$lib/stores';
+	import { servers, activeServer, channels, activeChannel, currentUser } from '$lib/stores';
 
 	let {
 		server,
@@ -10,6 +10,7 @@
 	}: { server: Server; x: number; y: number; onclose: () => void } = $props();
 
 	const isAdmin = server.role === 'owner' || server.role === 'admin';
+	const canDeleteSpace = $derived(server.role === 'owner' || $currentUser?.is_instance_admin);
 
 	// Edit modal state
 	let showEdit = $state(false);
@@ -202,11 +203,11 @@
 			{/if}
 		{/if}
 
-		{#if server.role !== 'owner'}
+		{#if server.role !== 'owner' && !$currentUser?.is_instance_admin}
 			<button class="danger" onclick={leaveServer}>Leave Space</button>
 		{/if}
 
-		{#if server.role === 'owner'}
+		{#if canDeleteSpace}
 			<div class="separator"></div>
 			<button class="danger" onclick={() => { deleteConfirmName = ''; showDeleteConfirm = true; }}>Delete Space</button>
 		{/if}
