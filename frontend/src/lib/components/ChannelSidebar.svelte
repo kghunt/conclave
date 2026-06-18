@@ -9,9 +9,6 @@
 
 	let showNewChannel = $state(false);
 	let newChannelName = $state('');
-	let showDeleteConfirm = $state(false);
-	let deleteConfirmName = $state('');
-	let deleting = $state(false);
 
 	function selectChannel(ch: Channel) {
 		activeDM.set(null);
@@ -36,22 +33,6 @@
 		activeDM.set(conv);
 	}
 
-	async function deleteServer() {
-		if (!$activeServer || deleteConfirmName !== $activeServer.name || deleting) return;
-		deleting = true;
-		try {
-			await api.deleteServer($activeServer.id);
-			servers.update((prev) => prev.filter((s) => s.id !== $activeServer!.id));
-			activeServer.set(null);
-			activeChannel.set(null);
-			channels.set([]);
-			showDeleteConfirm = false;
-			deleteConfirmName = '';
-		} finally {
-			deleting = false;
-		}
-	}
-
 	async function logout() {
 		await api.logout();
 		location.href = '/login';
@@ -62,9 +43,6 @@
 	{#if $activeServer}
 		<div class="server-header">
 			<span>{$activeServer.name}</span>
-			{#if $activeServer.role === 'owner'}
-				<button class="settings-btn" onclick={() => { showDeleteConfirm = true; deleteConfirmName = ''; }} title="Space settings">⚙</button>
-			{/if}
 		</div>
 
 		<div class="section-label">
@@ -126,31 +104,6 @@
 		{/if}
 	</div>
 </aside>
-
-{#if showDeleteConfirm && $activeServer}
-	<div class="modal-overlay" onclick={() => (showDeleteConfirm = false)}>
-		<div class="modal" onclick={(e) => e.stopPropagation()}>
-			<h3>Delete Space</h3>
-			<p>This will permanently delete <strong>{$activeServer.name}</strong> and all its channels and messages. This cannot be undone.</p>
-			<p class="confirm-label">Type the space name to confirm:</p>
-			<input
-				bind:value={deleteConfirmName}
-				placeholder={$activeServer.name}
-				onkeydown={(e) => e.key === 'Enter' && deleteServer()}
-			/>
-			<div class="modal-actions">
-				<button class="cancel-btn" onclick={() => (showDeleteConfirm = false)}>Cancel</button>
-				<button
-					class="delete-btn"
-					onclick={deleteServer}
-					disabled={deleteConfirmName !== $activeServer.name || deleting}
-				>
-					{deleting ? 'Deleting…' : 'Delete Space'}
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
 
 {#if showAdmin}
 	<AdminPanel onclose={() => (showAdmin = false)} />
@@ -295,78 +248,4 @@
 		min-width: 0;
 	}
 	.user-info:hover { background: rgba(255,255,255,0.07); }
-	.settings-btn {
-		background: none;
-		border: none;
-		color: #8b8b99;
-		cursor: pointer;
-		font-size: 0.9rem;
-		padding: 0.1rem 0.25rem;
-		border-radius: 3px;
-		opacity: 0;
-		transition: opacity 0.15s;
-	}
-	.server-header:hover .settings-btn { opacity: 1; }
-	.settings-btn:hover { color: #f0eff4; background: rgba(255,255,255,0.1); }
-
-	.modal-overlay {
-		position: fixed;
-		inset: 0;
-		background: rgba(0,0,0,0.75);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 300;
-	}
-	.modal {
-		background: #1c1c21;
-		border: 1px solid #2e2e38;
-		border-radius: 8px;
-		padding: 1.5rem;
-		width: 420px;
-		display: flex;
-		flex-direction: column;
-		gap: 0.875rem;
-	}
-	.modal h3 { color: #e04545; font-size: 1.1rem; }
-	.modal p { color: #aaa; font-size: 0.9rem; line-height: 1.5; }
-	.modal strong { color: #f0eff4; }
-	.confirm-label { color: #8b8b99 !important; font-size: 0.8rem !important; margin-bottom: -0.5rem; }
-	.modal input {
-		background: #26262b;
-		border: 1px solid #2e2e38;
-		color: #f0eff4;
-		padding: 0.5rem;
-		border-radius: 4px;
-		font-size: 0.9rem;
-		width: 100%;
-		outline: none;
-	}
-	.modal-actions {
-		display: flex;
-		justify-content: flex-end;
-		gap: 0.5rem;
-		margin-top: 0.25rem;
-	}
-	.cancel-btn {
-		background: none;
-		border: none;
-		color: #aaa;
-		cursor: pointer;
-		padding: 0.5rem 1rem;
-		border-radius: 4px;
-	}
-	.cancel-btn:hover { color: #f0eff4; }
-	.delete-btn {
-		background: #e04545;
-		border: none;
-		color: white;
-		padding: 0.5rem 1.25rem;
-		border-radius: 4px;
-		cursor: pointer;
-		font-size: 0.9rem;
-		font-weight: 600;
-	}
-	.delete-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-	.delete-btn:not(:disabled):hover { background: #c43333; }
 </style>
