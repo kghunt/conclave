@@ -189,9 +189,16 @@ func (h *DMsHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	payload, _ := json.Marshal(m)
 	h.hub.Broadcast("dm:"+convID, ws.Event{Type: "dm.new", Payload: payload})
 
+	var recipientID string
+	h.db.QueryRow(r.Context(), `SELECT CASE WHEN user1_id=$1 THEN user2_id ELSE user1_id END FROM dm_conversations WHERE id=$2`, userID, convID).Scan(&recipientID)
+	if recipientID != "" {
+		h.hub.Broadcast("user:"+recipientID, ws.Event{Type: "dm.new", Payload: payload})
+	}
+
 	if h.push.enabled() {
-		var recipientID string
-		h.db.QueryRow(r.Context(), `SELECT CASE WHEN user1_id=$1 THEN user2_id ELSE user1_id END FROM dm_conversations WHERE id=$2`, userID, convID).Scan(&recipientID)
+		if recipientID == "" {
+			h.db.QueryRow(r.Context(), `SELECT CASE WHEN user1_id=$1 THEN user2_id ELSE user1_id END FROM dm_conversations WHERE id=$2`, userID, convID).Scan(&recipientID)
+		}
 		content := body.Content
 		if len(content) > 100 {
 			content = content[:97] + "…"

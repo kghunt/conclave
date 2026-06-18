@@ -1,6 +1,30 @@
 import { writable } from 'svelte/store';
 import type { User, Server, Channel, DMConversation, FriendEntry, InstanceConfig, ServerMember, VoicePeer } from './api';
 
+export interface NotifPrefs {
+	messageSound: boolean;
+	mentionSound: boolean;
+	dmSound: boolean;
+}
+
+function loadNotifPrefs(): NotifPrefs {
+	try {
+		const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('notifPrefs') : null;
+		if (raw) return { messageSound: true, mentionSound: true, dmSound: true, ...JSON.parse(raw) };
+	} catch {}
+	return { messageSound: true, mentionSound: true, dmSound: true };
+}
+
+function makeNotifPrefs() {
+	const store = writable<NotifPrefs>(loadNotifPrefs());
+	store.subscribe((v) => {
+		try { localStorage.setItem('notifPrefs', JSON.stringify(v)); } catch {}
+	});
+	return store;
+}
+
+export const notifPrefs = makeNotifPrefs();
+
 export const currentUser = writable<User | null>(null);
 export const servers = writable<Server[]>([]);
 export const activeServer = writable<Server | null>(null);
