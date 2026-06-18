@@ -66,7 +66,13 @@
 			for (const k of Object.keys(themeDefaults) as ThemeKey[]) {
 				themePayload['theme_' + k] = theme[k] === themeDefaults[k] ? '' : theme[k];
 			}
-			await api.updateAdminSettings({ ...settings, ...themePayload });
+			// number inputs produce JS numbers via bind:value; backend expects map[string]string
+			const settingsPayload = Object.fromEntries(
+				Object.entries(settings)
+					.filter(([, v]) => v !== undefined)
+					.map(([k, v]) => [k, String(v)])
+			) as AdminSettings;
+			await api.updateAdminSettings({ ...settingsPayload, ...themePayload });
 			localStorage.setItem('conclave_theme', JSON.stringify(
 				Object.fromEntries((Object.keys(themeDefaults) as ThemeKey[])
 					.filter((k) => theme[k] !== themeDefaults[k])
