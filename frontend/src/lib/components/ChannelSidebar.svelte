@@ -180,6 +180,7 @@
 			if (prev.find((c) => c.id === conv.id)) return prev;
 			return [conv, ...prev];
 		});
+		activeChannel.set(null);
 		activeDM.set(conv);
 	}
 
@@ -234,7 +235,7 @@
 		<button
 			class="channel-item"
 			class:active={$activeDM?.id === conv.id}
-			onclick={() => activeDM.set(conv)}
+			onclick={() => { activeChannel.set(null); activeDM.set(conv); }}
 		>
 			<Avatar url={conv.other_user.avatar_url} name={conv.other_user.display_name} userId={conv.other_user.id} size={20} />
 			{conv.other_user.display_name}
