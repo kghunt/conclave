@@ -3,6 +3,7 @@ package handlers
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,14 +16,16 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/karl/conclave/internal/middleware"
 	"github.com/karl/conclave/internal/models"
+	"github.com/karl/conclave/internal/ws"
 )
 
 type ServersHandler struct {
-	db *pgxpool.Pool
+	db  *pgxpool.Pool
+	hub *ws.Hub
 }
 
-func NewServers(db *pgxpool.Pool) *ServersHandler {
-	return &ServersHandler{db: db}
+func NewServers(db *pgxpool.Pool, hub *ws.Hub) *ServersHandler {
+	return &ServersHandler{db: db, hub: hub}
 }
 
 func (h *ServersHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -239,6 +242,7 @@ func (h *ServersHandler) Join(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "join failed")
 		return
 	}
+	go h.broadcastMemberJoin(serverID, userID)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -254,6 +258,7 @@ func (h *ServersHandler) Leave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.db.Exec(r.Context(), `DELETE FROM server_members WHERE server_id = $1 AND user_id = $2`, serverID, userID)
+	go h.broadcastMemberLeave(serverID, userID)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -283,6 +288,7 @@ func (h *ServersHandler) JoinByInvite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.db.Exec(r.Context(), `INSERT INTO server_members (server_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, serverID, userID)
+	go h.broadcastMemberJoin(serverID, userID)
 	writeJSON(w, http.StatusOK, map[string]string{"server_id": serverID})
 }
 
@@ -430,4 +436,14 @@ func randomCode(n int) string {
 	b := make([]byte, n)
 	rand.Read(b)
 	return base64.URLEncoding.EncodeToString(b)[:n]
+}
+
+func (h *ServersHandler) broadcastMemberJoin(serverID, userID string) {
+	payload, _ := json.Marshal(map[string]string{"server_id": serverID, "user_id": userID})
+	h.hub.Broadcast("server:"+serverID, ws.Event{Type: "member.join", Payload: payload})
+}
+
+func (h *ServersHandler) broadcastMemberLeave(serverID, userID string) {
+	payload, _ := json.Marshal(map[string]string{"server_id": serverID, "user_id": userID})
+	h.hub.Broadcast("server:"+serverID, ws.Event{Type: "member.leave", Payload: payload})
 }

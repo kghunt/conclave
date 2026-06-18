@@ -97,5 +97,13 @@ func (h *WSHandler) canSubscribe(userID, room string) bool {
 		`, convID, userID).Scan(&ok)
 		return ok
 	}
+	if strings.HasPrefix(room, "server:") {
+		serverID := room[len("server:"):]
+		var ok bool
+		h.db.QueryRow(ctx, `
+			SELECT EXISTS(SELECT 1 FROM server_members WHERE server_id = $1 AND user_id = $2)
+		`, serverID, userID).Scan(&ok)
+		return ok
+	}
 	return false
 }

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api, type ServerMember } from '$lib/api';
 	import { activeServer, currentUser, activeDM, activeChannel, dmConversations, friends } from '$lib/stores';
+	import { socket } from '$lib/socket';
 	import Avatar from './Avatar.svelte';
 
 	let { serverId, onDmStarted }: { serverId: string; onDmStarted?: () => void } = $props();
@@ -12,10 +13,25 @@
 
 	onMount(load);
 
-	// Reload when server changes
+	// Subscribe to server-level room and reload on membership changes
 	$effect(() => {
-		serverId;
+		const id = serverId;
+		if (!id) return;
+		const room = 'server:' + id;
+		socket.subscribe(room);
 		load();
+		const unsub = socket.on((event) => {
+			if (
+				(event.type === 'member.join' || event.type === 'member.leave') &&
+				event.payload.server_id === id
+			) {
+				load();
+			}
+		});
+		return () => {
+			unsub();
+			socket.unsubscribe(room);
+		};
 	});
 
 	async function load() {
