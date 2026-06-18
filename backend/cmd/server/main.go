@@ -51,8 +51,8 @@ func main() {
 	threadsH := handlers.NewThreads(pool, hub)
 	pushH := handlers.NewPush(pool, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDEmail)
 	friendsH := handlers.NewFriends(pool, hub)
-	messagesH := handlers.NewMessages(pool, hub, pushH)
-	dmsH := handlers.NewDMs(pool, hub, pushH)
+	messagesH := handlers.NewMessages(pool, hub, pushH, cfg.AvatarDir, cfg.BaseURL)
+	dmsH := handlers.NewDMs(pool, hub, pushH, cfg.AvatarDir, cfg.BaseURL)
 	wsH := handlers.NewWS(hub, authSvc, pool, cfg.BaseURL, cfg.FrontendURL)
 	go wsH.RunPresenceBroadcaster()
 

@@ -12,13 +12,15 @@ import (
 )
 
 type DMsHandler struct {
-	db   *pgxpool.Pool
-	hub  *ws.Hub
-	push *PushHandler
+	db        *pgxpool.Pool
+	hub       *ws.Hub
+	push      *PushHandler
+	uploadDir string
+	baseURL   string
 }
 
-func NewDMs(db *pgxpool.Pool, hub *ws.Hub, push *PushHandler) *DMsHandler {
-	return &DMsHandler{db: db, hub: hub, push: push}
+func NewDMs(db *pgxpool.Pool, hub *ws.Hub, push *PushHandler, uploadDir, baseURL string) *DMsHandler {
+	return &DMsHandler{db: db, hub: hub, push: push, uploadDir: uploadDir, baseURL: baseURL}
 }
 
 func (h *DMsHandler) ListConversations(w http.ResponseWriter, r *http.Request) {
@@ -133,11 +135,16 @@ func (h *DMsHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var content string
+	h.db.QueryRow(r.Context(), `SELECT content FROM direct_messages WHERE id=$1 AND sender_id=$2`, messageID, userID).Scan(&content)
+
 	tag, err := h.db.Exec(r.Context(), `DELETE FROM direct_messages WHERE id=$1 AND sender_id=$2`, messageID, userID)
 	if err != nil || tag.RowsAffected() == 0 {
 		writeErr(w, http.StatusForbidden, "not your message")
 		return
 	}
+
+	DeleteUploadedFile(h.uploadDir, h.baseURL, content)
 
 	payload, _ := json.Marshal(map[string]string{"id": messageID, "conversation_id": convID})
 	h.hub.Broadcast("dm:"+convID, ws.Event{Type: "dm.delete", Payload: payload})
