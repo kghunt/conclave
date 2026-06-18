@@ -101,12 +101,19 @@ type MessageReply struct {
 	AuthorName string `json:"author_name"`
 }
 
+type Reaction struct {
+	Emoji string `json:"emoji"`
+	Count int    `json:"count"`
+	Mine  bool   `json:"mine"`
+}
+
 type Message struct {
 	ID        string         `json:"id"`
 	ChannelID string         `json:"channel_id"`
 	Author    *User          `json:"author"`
 	Content   string         `json:"content"`
 	ReplyTo   *MessageReply  `json:"reply_to,omitempty"`
+	Reactions []Reaction     `json:"reactions"`
 	EditedAt  *time.Time     `json:"edited_at,omitempty"`
 	CreatedAt time.Time      `json:"created_at"`
 }

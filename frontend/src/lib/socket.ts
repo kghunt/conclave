@@ -23,7 +23,8 @@ export type WSEvent =
 	| { type: 'voice.signal'; payload: { channel_id: string; from: string; signal: RTCSessionDescriptionInit | RTCIceCandidateInit } }
 	| { type: 'thread.new'; payload: import('./api').Thread }
 	| { type: 'thread.updated'; payload: import('./api').Thread }
-	| { type: 'thread.message.new'; payload: import('./api').ThreadMessage };
+	| { type: 'thread.message.new'; payload: import('./api').ThreadMessage }
+	| { type: 'reaction.toggle'; payload: { message_id: string; channel_id: string; emoji: string; user_id: string; action: 'add' | 'remove' } };
 
 type Handler = (event: WSEvent) => void;
 

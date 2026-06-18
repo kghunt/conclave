@@ -78,6 +78,10 @@ export const api = {
 		req<Message>('PATCH', `/servers/${serverId}/channels/${channelId}/messages/${messageId}`, { content }),
 	deleteMessage: (serverId: string, channelId: string, messageId: string) =>
 		req<void>('DELETE', `/servers/${serverId}/channels/${channelId}/messages/${messageId}`),
+	addReaction: (serverId: string, channelId: string, messageId: string, emoji: string) =>
+		req<void>('PUT', `/servers/${serverId}/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`),
+	removeReaction: (serverId: string, channelId: string, messageId: string, emoji: string) =>
+		req<void>('DELETE', `/servers/${serverId}/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`),
 	deleteDM: (convId: string, messageId: string) =>
 		req<void>('DELETE', `/dms/conversations/${convId}/messages/${messageId}`),
 	uploadFile: async (file: File) => {
@@ -314,12 +318,19 @@ export interface MessageReply {
 	author_name: string;
 }
 
+export interface Reaction {
+	emoji: string;
+	count: number;
+	mine: boolean;
+}
+
 export interface Message {
 	id: string;
 	channel_id: string;
 	author: User;
 	content: string;
 	reply_to?: MessageReply;
+	reactions: Reaction[];
 	edited_at?: string;
 	created_at: string;
 }
