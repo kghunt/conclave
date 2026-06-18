@@ -139,6 +139,44 @@
 	let fileInput: HTMLInputElement;
 	let textarea: HTMLTextAreaElement;
 
+	// Typing indicator
+	let typers = $state<Record<string, string>>({}); // userId → displayName
+	const typerTimeouts: Record<string, ReturnType<typeof setTimeout>> = {};
+	let lastTypingSent = 0;
+
+	$effect(() => {
+		const unsub = socket.on((event) => {
+			if (event.type !== 'typing') return;
+			const { user_id, display_name, room } = event.payload;
+			const currentRoom = $activeChannel ? 'channel:' + $activeChannel.id
+			                  : $activeDM      ? 'dm:'      + $activeDM.id
+			                  : null;
+			if (room !== currentRoom) return;
+			typers = { ...typers, [user_id]: display_name };
+			clearTimeout(typerTimeouts[user_id]);
+			typerTimeouts[user_id] = setTimeout(() => {
+				const { [user_id]: _, ...rest } = typers;
+				typers = rest;
+			}, 3000);
+		});
+		return () => unsub();
+	});
+
+	// Clear typers when switching channels or DMs
+	$effect(() => {
+		$activeChannel; $activeDM;
+		typers = {};
+		Object.values(typerTimeouts).forEach(clearTimeout);
+	});
+
+	let typingLabel = $derived((() => {
+		const names = Object.values(typers);
+		if (names.length === 0) return '';
+		if (names.length === 1) return `${names[0]} is typing`;
+		if (names.length === 2) return `${names[0]} and ${names[1]} are typing`;
+		return 'Several people are typing';
+	})());
+
 	// @mention autocomplete
 	let mentionQuery = $state('');
 	let mentionStart = $state(-1);
@@ -171,7 +209,20 @@
 
 	function onInput() {
 		const el = textarea;
-		if (!el || !$activeServer) return;
+		if (!el) return;
+
+		// Throttled typing indicator
+		if (input.trim() && ($activeChannel || $activeDM)) {
+			const now = Date.now();
+			if (now - lastTypingSent > 2000) {
+				lastTypingSent = now;
+				const room = $activeChannel ? 'channel:' + $activeChannel.id : 'dm:' + $activeDM!.id;
+				socket.send('typing', { room });
+			}
+		}
+
+		// @mention autocomplete
+		if (!$activeServer) return;
 		const pos = el.selectionStart ?? 0;
 		const before = input.slice(0, pos);
 		const match = before.match(/@(\w*)$/);
@@ -305,6 +356,13 @@
 				messages={$activeChannel ? messages : dmMessages}
 				isDM={!!$activeDM}
 			/>
+
+			<div class="typing-bar" class:visible={!!typingLabel}>
+				<span class="typing-dots">
+					<span></span><span></span><span></span>
+				</span>
+				<span class="typing-text">{typingLabel}</span>
+			</div>
 
 			<div class="input-area">
 				<div class="input-actions">
@@ -449,6 +507,42 @@
 	}
 	.icon-btn:hover { color: var(--text); background: rgba(255,255,255,0.1); }
 	.icon-btn.active { color: var(--accent); }
+	.typing-bar {
+		height: 0;
+		overflow: hidden;
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0 1rem;
+		transition: height 0.15s ease;
+		flex-shrink: 0;
+	}
+	.typing-bar.visible {
+		height: 1.5rem;
+	}
+	.typing-dots {
+		display: flex;
+		align-items: center;
+		gap: 3px;
+	}
+	.typing-dots span {
+		width: 5px;
+		height: 5px;
+		background: var(--text-muted);
+		border-radius: 50%;
+		animation: typing-bounce 1.2s ease-in-out infinite;
+	}
+	.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+	.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+	@keyframes typing-bounce {
+		0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+		30% { transform: translateY(-4px); opacity: 1; }
+	}
+	.typing-text {
+		font-size: 0.75rem;
+		color: var(--text-muted);
+		font-style: italic;
+	}
 	.input-area {
 		padding: 0.75rem 1rem;
 		flex-shrink: 0;

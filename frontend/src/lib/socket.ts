@@ -10,7 +10,8 @@ export type WSEvent =
 	| { type: 'member.join'; payload: { server_id: string; user_id: string } }
 	| { type: 'member.leave'; payload: { server_id: string; user_id: string } }
 	| { type: 'friend.accepted'; payload: { id: string; display_name: string; avatar_url: string } }
-	| { type: 'mention.new'; payload: import('./api').Message };
+	| { type: 'mention.new'; payload: import('./api').Message }
+	| { type: 'typing'; payload: { user_id: string; display_name: string; room: string } };
 
 type Handler = (event: WSEvent) => void;
 
@@ -65,6 +66,12 @@ class SocketClient {
 	on(handler: Handler) {
 		this.handlers.add(handler);
 		return () => this.handlers.delete(handler);
+	}
+
+	send(type: string, payload: unknown) {
+		if (this.ws?.readyState === WebSocket.OPEN) {
+			this.ws.send(JSON.stringify({ type, payload }));
+		}
 	}
 
 	private sendSubscribe(room: string) {
