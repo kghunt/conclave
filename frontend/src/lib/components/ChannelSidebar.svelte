@@ -161,6 +161,7 @@
 
 	let showNewChannel = $state(false);
 	let newChannelName = $state('');
+	let newChannelDesc = $state('');
 	let newChannelType = $state<'text' | 'voice' | 'threads'>('text');
 
 	// Load initial voice state when switching servers; listen for live updates via server room
@@ -225,11 +226,12 @@
 
 	async function createChannel() {
 		if (!newChannelName.trim() || !$activeServer) return;
-		const ch = await api.createChannel($activeServer.id, { name: newChannelName, description: '', type: newChannelType });
+		const ch = await api.createChannel($activeServer.id, { name: newChannelName, description: newChannelDesc.trim(), type: newChannelType });
 		channels.update((prev) => [...prev, ch]);
-		if (ch.type === 'text') selectChannel(ch);
+		if (ch.type === 'text' || ch.type === 'threads') selectChannel(ch);
 		showNewChannel = false;
 		newChannelName = '';
+		newChannelDesc = '';
 		newChannelType = 'text';
 	}
 
@@ -287,19 +289,24 @@
 					placeholder={newChannelType === 'voice' ? 'voice-channel' : 'channel-name'}
 					onkeydown={(e) => e.key === 'Enter' && createChannel()}
 				/>
+				<input
+					bind:value={newChannelDesc}
+					placeholder="Description (optional)"
+					class="desc-input"
+					onkeydown={(e) => e.key === 'Enter' && createChannel()}
+				/>
 				<button onclick={createChannel}>Add</button>
 			</div>
 		{/if}
 
-		{#each $channels.filter((c) => c.type !== 'voice') as ch}
-			{@const icon = ch.type === 'threads' ? '💬' : '#'}
+		{#each $channels.filter((c) => c.type === 'text') as ch}
 			<div class="channel-row">
 				<button
 					class="channel-item"
 					class:active={$activeChannel?.id === ch.id}
 					onclick={() => selectChannel(ch)}
 				>
-					<span>{icon} {ch.name}</span>
+					<span># {ch.name}</span>
 					{#if $mentionedChannels.has(ch.id)}
 						<span class="badge mention-badge">@</span>
 					{:else if ch.unread_count > 0}
@@ -311,6 +318,29 @@
 				{/if}
 			</div>
 		{/each}
+
+		{#if $channels.some((c) => c.type === 'threads')}
+			<div class="section-label" style="margin-top: 0.5rem">
+				<span>Thread Channels</span>
+			</div>
+			{#each $channels.filter((c) => c.type === 'threads') as ch}
+				<div class="channel-row">
+					<button
+						class="channel-item"
+						class:active={$activeChannel?.id === ch.id}
+						onclick={() => selectChannel(ch)}
+					>
+						<span>💬 {ch.name}</span>
+						{#if ch.unread_count > 0}
+							<span class="badge">{ch.unread_count}</span>
+						{/if}
+					</button>
+					{#if $activeServer?.role === 'owner' || $activeServer?.role === 'admin'}
+						<button class="ch-delete-btn" onclick={() => deleteChannel(ch)} title="Delete channel">✕</button>
+					{/if}
+				</div>
+			{/each}
+		{/if}
 
 		{#if $channels.some((c) => c.type === 'voice')}
 			<div class="section-label" style="margin-top: 0.5rem">
@@ -520,11 +550,12 @@
 	.add-btn:hover { color: var(--text); }
 	.new-channel {
 		display: flex;
+		flex-direction: column;
 		gap: 0.25rem;
 		padding: 0.25rem 0.75rem;
 	}
+	.new-channel .new-channel-type { flex-direction: row; }
 	.new-channel input {
-		flex: 1;
 		background: var(--bg-input);
 		border: 1px solid var(--border);
 		color: var(--text);
@@ -532,6 +563,11 @@
 		border-radius: 4px;
 		font-size: 0.85rem;
 	}
+	.new-channel .desc-input {
+		font-size: 0.78rem;
+		opacity: 0.8;
+	}
+	.new-channel button { align-self: flex-end; }
 	.new-channel button {
 		background: var(--accent);
 		border: none;

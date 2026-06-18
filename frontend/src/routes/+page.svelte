@@ -20,6 +20,8 @@
 	let input = $state('');
 	let showMembers = $state(true);
 	let isMobile = $state(false);
+	let editingDesc = $state(false);
+	let descInput = $state('');
 
 	onMount(() => {
 		const mq = window.matchMedia('(max-width: 767px)');
@@ -196,12 +198,13 @@
 		return () => unsub();
 	});
 
-	// Clear typers, reply state, and active thread when switching channels or DMs
+	// Clear typers, reply state, active thread, and desc edit when switching channels or DMs
 	$effect(() => {
 		$activeChannel; $activeDM;
 		typers = {};
 		replyingTo = null;
 		activeThread = null;
+		editingDesc = false;
 		Object.values(typerTimeouts).forEach(clearTimeout);
 	});
 
@@ -369,6 +372,14 @@
 		}
 	}
 
+	async function saveDesc() {
+		if (!$activeChannel || !$activeServer) return;
+		const updated = await api.updateChannel($activeServer.id, $activeChannel.id, { description: descInput });
+		channels.update((cs) => cs.map((c) => c.id === updated.id ? { ...c, description: updated.description } : c));
+		activeChannel.update((ch) => ch ? { ...ch, description: updated.description } : ch);
+		editingDesc = false;
+	}
+
 	// Whether the chat panel should be visible
 	let showChat = $derived(!isMobile || !!$activeChannel || !!$activeDM);
 	// Whether the sidebar should be visible
@@ -391,22 +402,49 @@
 						{$activeDM ? 'Messages' : ($activeServer?.name ?? 'Channels')}
 					</button>
 				{/if}
-				<span class="channel-name">
-					{#if $activeChannel}
-						{#if $activeChannel.type === 'threads'}
-							{#if activeThread}
-								💬 {$activeChannel.name} / {activeThread.title}
+				<div class="channel-info">
+					<span class="channel-name">
+						{#if $activeChannel}
+							{#if $activeChannel.type === 'threads'}
+								{#if activeThread}
+									💬 {$activeChannel.name} / {activeThread.title}
+								{:else}
+									💬 {$activeChannel.name}
+								{/if}
+							{:else if $activeChannel.type === 'voice'}
+								🔊 {$activeChannel.name}
 							{:else}
-								💬 {$activeChannel.name}
+								# {$activeChannel.name}
 							{/if}
-						{:else if $activeChannel.type === 'voice'}
-							🔊 {$activeChannel.name}
-						{:else}
-							# {$activeChannel.name}
+						{/if}
+						{#if $activeDM}@ {$activeDM.other_user.display_name}{/if}
+					</span>
+					{#if $activeChannel && !activeThread}
+						{#if editingDesc}
+							<div class="desc-edit">
+								<input
+									bind:value={descInput}
+									placeholder="Add a channel description…"
+									onkeydown={(e) => { if (e.key === 'Enter') saveDesc(); if (e.key === 'Escape') editingDesc = false; }}
+									autofocus
+								/>
+								<button class="desc-save-btn" onclick={saveDesc}>Save</button>
+								<button class="desc-cancel-btn" onclick={() => (editingDesc = false)}>Cancel</button>
+							</div>
+						{:else if $activeChannel.description}
+							<span class="channel-desc">
+								{$activeChannel.description}
+								{#if $activeServer?.role === 'owner' || $activeServer?.role === 'admin'}
+									<button class="desc-edit-btn" onclick={() => { descInput = $activeChannel?.description ?? ''; editingDesc = true; }} title="Edit description">
+										<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+									</button>
+								{/if}
+							</span>
+						{:else if $activeServer?.role === 'owner' || $activeServer?.role === 'admin'}
+							<button class="desc-add-btn" onclick={() => { descInput = ''; editingDesc = true; }}>+ Add description</button>
 						{/if}
 					{/if}
-					{#if $activeDM}@ {$activeDM.other_user.display_name}{/if}
-				</span>
+				</div>
 				<div class="header-actions">
 					{#if $activeChannel}
 						<button onclick={() => (showMembers = !showMembers)} class="icon-btn" class:active={showMembers} title="Members">
@@ -548,7 +586,7 @@
 		align-items: center;
 		gap: 0.5rem;
 		padding: 0 1rem;
-		height: 48px;
+		min-height: 48px;
 		border-bottom: 1px solid #0e0e10;
 		background: var(--bg-panel);
 		flex-shrink: 0;
@@ -569,15 +607,97 @@
 		flex-shrink: 0;
 	}
 	.back-btn:hover { background: rgba(232,84,30,0.1); }
-	.channel-name {
+	.channel-info {
 		flex: 1;
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		gap: 1px;
+		min-width: 0;
+		padding: 6px 0;
+	}
+	.channel-name {
 		font-weight: 600;
 		color: var(--text);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+		font-size: 0.95rem;
 	}
-	.header-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+	.channel-desc {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 0.75rem;
+		color: var(--text-muted);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.desc-edit-btn {
+		background: none;
+		border: none;
+		color: var(--text-muted);
+		cursor: pointer;
+		padding: 1px 3px;
+		border-radius: 3px;
+		display: inline-flex;
+		align-items: center;
+		opacity: 0.6;
+		flex-shrink: 0;
+	}
+	.desc-edit-btn:hover { opacity: 1; color: var(--accent); }
+	.desc-add-btn {
+		background: none;
+		border: none;
+		color: var(--text-muted);
+		cursor: pointer;
+		font-size: 0.72rem;
+		padding: 0;
+		opacity: 0.5;
+	}
+	.desc-add-btn:hover { opacity: 1; color: var(--accent); }
+	.desc-edit {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+	.desc-edit input {
+		flex: 1;
+		background: var(--bg-input);
+		border: 1px solid var(--border);
+		color: var(--text);
+		padding: 2px 6px;
+		border-radius: 4px;
+		font-size: 0.78rem;
+		outline: none;
+		font-family: inherit;
+		min-width: 0;
+	}
+	.desc-edit input:focus { border-color: var(--accent); }
+	.desc-save-btn {
+		background: var(--accent);
+		border: none;
+		color: white;
+		padding: 2px 8px;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.75rem;
+		white-space: nowrap;
+		flex-shrink: 0;
+	}
+	.desc-cancel-btn {
+		background: none;
+		border: 1px solid var(--border);
+		color: var(--text-muted);
+		padding: 2px 6px;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.75rem;
+		white-space: nowrap;
+		flex-shrink: 0;
+	}
+	.header-actions { display: flex; gap: 0.5rem; flex-shrink: 0; align-items: center; }
 	.icon-btn {
 		background: none;
 		border: none;

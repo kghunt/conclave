@@ -116,6 +116,7 @@ func main() {
 		// channels
 		r.Get("/api/servers/{serverID}/channels", channelsH.List)
 		r.Post("/api/servers/{serverID}/channels", channelsH.Create)
+		r.Patch("/api/servers/{serverID}/channels/{channelID}", channelsH.Update)
 		r.Delete("/api/servers/{serverID}/channels/{channelID}", channelsH.Delete)
 		r.Post("/api/servers/{serverID}/channels/{channelID}/read", channelsH.MarkRead)
 		r.Get("/api/servers/{serverID}/voice", channelsH.VoiceState)

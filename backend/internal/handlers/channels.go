@@ -94,6 +94,44 @@ func (h *ChannelsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, c)
 }
 
+func (h *ChannelsHandler) Update(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+	channelID := chi.URLParam(r, "channelID")
+	userID := middleware.UserID(r)
+
+	var role string
+	h.db.QueryRow(r.Context(), `SELECT role FROM server_members WHERE server_id=$1 AND user_id=$2`, serverID, userID).Scan(&role)
+	if role != "owner" && role != "admin" {
+		writeErr(w, http.StatusForbidden, "admin required")
+		return
+	}
+
+	var body struct {
+		Name        *string `json:"name"`
+		Description *string `json:"description"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+
+	var c models.Channel
+	err := h.db.QueryRow(r.Context(), `
+		UPDATE channels
+		SET name        = COALESCE($1, name),
+		    description = COALESCE($2, description)
+		WHERE id = $3 AND server_id = $4
+		RETURNING id, server_id, name, description, type, position, created_at
+	`, body.Name, body.Description, channelID, serverID).Scan(
+		&c.ID, &c.ServerID, &c.Name, &c.Description, &c.Type, &c.Position, &c.CreatedAt,
+	)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "channel not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, c)
+}
+
 func (h *ChannelsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	channelID := chi.URLParam(r, "channelID")
 	serverID := chi.URLParam(r, "serverID")
