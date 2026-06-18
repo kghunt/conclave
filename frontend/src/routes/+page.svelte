@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { api, type Message, type DirectMessage, type MessageReply, type Thread } from '$lib/api';
+	import { api, type Message, type DirectMessage, type MessageReply, type Thread, type Reaction } from '$lib/api';
 	import { socket } from '$lib/socket';
 	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent, instanceConfig, serverMembers, mentionedChannels, presenceMap, notifPrefs } from '$lib/stores';
 	import { playMessageSound, playMentionSound, playDMSound } from '$lib/sounds';
@@ -130,6 +130,30 @@
 			}
 			if (event.type === 'message.delete' && event.payload.channel_id === channelId) {
 				messages = messages.filter((m) => m.id !== event.payload.id);
+			}
+			if (event.type === 'reaction.toggle' && event.payload.channel_id === channelId) {
+				const { message_id, emoji, user_id, action } = event.payload;
+				const isMine = user_id === $currentUser?.id;
+				messages = messages.map((m) => {
+					if (m.id !== message_id) return m;
+					const msg = m as Message;
+					const reactions = [...(msg.reactions ?? [])];
+					const idx = reactions.findIndex((rx: Reaction) => rx.emoji === emoji);
+					if (action === 'add') {
+						if (idx >= 0) {
+							reactions[idx] = { ...reactions[idx], count: reactions[idx].count + 1, mine: reactions[idx].mine || isMine };
+						} else {
+							reactions.push({ emoji, count: 1, mine: isMine });
+						}
+					} else {
+						if (idx >= 0) {
+							const newCount = reactions[idx].count - 1;
+							if (newCount <= 0) reactions.splice(idx, 1);
+							else reactions[idx] = { ...reactions[idx], count: newCount, mine: isMine ? false : reactions[idx].mine };
+						}
+					}
+					return { ...msg, reactions };
+				});
 			}
 		});
 
@@ -384,6 +408,18 @@
 		}
 	}
 
+	async function onreact(messageId: string, emoji: string) {
+		if (!$activeServer || !$activeChannel) return;
+		const msg = messages.find((m) => m.id === messageId) as Message | undefined;
+		if (!msg) return;
+		const existing = msg.reactions?.find((rx: Reaction) => rx.emoji === emoji);
+		if (existing?.mine) {
+			await api.removeReaction($activeServer.id, $activeChannel.id, messageId, emoji);
+		} else {
+			await api.addReaction($activeServer.id, $activeChannel.id, messageId, emoji);
+		}
+	}
+
 	async function saveDesc() {
 		if (!$activeChannel || !$activeServer) return;
 		const updated = await api.updateChannel($activeServer.id, $activeChannel.id, { description: descInput });
@@ -478,6 +514,7 @@
 				messages={$activeChannel ? messages : dmMessages}
 				isDM={!!$activeDM}
 				onreply={(msg) => { replyingTo = msg; setTimeout(() => textarea?.focus(), 0); }}
+				{onreact}
 			/>
 
 			{#if replyingTo}

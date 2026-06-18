@@ -2,6 +2,7 @@
 	import { currentUser, activeServer, activeChannel, activeDM, serverMembers } from '$lib/stores';
 	import { api, type Message, type DirectMessage } from '$lib/api';
 	import Avatar from './Avatar.svelte';
+	import EmojiPicker from './EmojiPicker.svelte';
 
 	const isAdmin = $derived(
 		$activeServer?.role === 'owner' || $activeServer?.role === 'admin'
@@ -37,8 +38,11 @@
 	let {
 		messages,
 		isDM = false,
-		onreply
-	}: { messages: AnyMessage[]; isDM?: boolean; onreply?: (msg: Message) => void } = $props();
+		onreply,
+		onreact
+	}: { messages: AnyMessage[]; isDM?: boolean; onreply?: (msg: Message) => void; onreact?: (messageId: string, emoji: string) => void } = $props();
+
+	let reactionPickerFor = $state<string | null>(null);
 
 	let container: HTMLElement;
 	let stickToBottom = true;
@@ -181,6 +185,13 @@
 					{:else}
 						<p>{#each parseContent(msg.content) as part}{#if part.type === 'mention'}<span class="mention">{part.value}</span>{:else}{part.value}{/if}{/each}</p>
 					{/if}
+					{#if isMessage(msg) && msg.reactions?.length > 0}
+						<div class="reactions">
+							{#each msg.reactions as rxn}
+								<button class="reaction-pill" class:mine={rxn.mine} onclick={() => onreact?.(msg.id, rxn.emoji)} title={rxn.mine ? 'Remove reaction' : 'React'}>{rxn.emoji} <span class="rxn-count">{rxn.count}</span></button>
+							{/each}
+						</div>
+					{/if}
 				</div>
 			{:else}
 				<div class="avatar-spacer"></div>
@@ -202,11 +213,29 @@
 					{:else}
 						<p>{#each parseContent(msg.content) as part}{#if part.type === 'mention'}<span class="mention">{part.value}</span>{:else}{part.value}{/if}{/each}</p>
 					{/if}
+					{#if isMessage(msg) && msg.reactions?.length > 0}
+						<div class="reactions">
+							{#each msg.reactions as rxn}
+								<button class="reaction-pill" class:mine={rxn.mine} onclick={() => onreact?.(msg.id, rxn.emoji)} title={rxn.mine ? 'Remove reaction' : 'React'}>{rxn.emoji} <span class="rxn-count">{rxn.count}</span></button>
+							{/each}
+						</div>
+					{/if}
 				</div>
 			{/if}
 
 			{#if !editing}
 				<div class="msg-actions">
+					{#if isMessage(msg) && !isDM && onreact}
+						<div class="reaction-btn-wrap">
+							<button class="action-btn" onclick={(e) => { e.stopPropagation(); reactionPickerFor = reactionPickerFor === msg.id ? null : msg.id; }} title="Add reaction">😊</button>
+							{#if reactionPickerFor === msg.id}
+								<EmojiPicker
+									onSelect={(emoji) => { onreact(msg.id, emoji); reactionPickerFor = null; }}
+									onClose={() => { reactionPickerFor = null; }}
+								/>
+							{/if}
+						</div>
+					{/if}
 					{#if isMessage(msg) && onreply}
 						<button class="action-btn" onclick={() => onreply(msg as Message)} title="Reply">↩</button>
 					{/if}
@@ -378,4 +407,31 @@
 	}
 	.action-btn:hover { background: var(--border); }
 	.action-btn.delete:hover { background: #e04545; border-color: #e04545; }
+	.reaction-btn-wrap { position: relative; }
+	.reactions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem;
+		margin-top: 0.3rem;
+	}
+	.reaction-pill {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		background: rgba(255,255,255,0.05);
+		border: 1px solid var(--border);
+		border-radius: 12px;
+		padding: 0.1rem 0.5rem;
+		font-size: 0.88rem;
+		line-height: 1.6;
+		cursor: pointer;
+		color: var(--text);
+		transition: background 0.1s, border-color 0.1s;
+	}
+	.reaction-pill:hover { background: rgba(255,255,255,0.1); border-color: var(--accent); }
+	.reaction-pill.mine {
+		background: color-mix(in srgb, var(--accent) 20%, transparent);
+		border-color: var(--accent);
+	}
+	.rxn-count { font-size: 0.75rem; color: var(--text-muted); font-weight: 600; }
 </style>

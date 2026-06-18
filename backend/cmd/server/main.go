@@ -146,6 +146,8 @@ func main() {
 		r.Post("/api/servers/{serverID}/channels/{channelID}/messages", messagesH.Send)
 		r.Patch("/api/servers/{serverID}/channels/{channelID}/messages/{messageID}", messagesH.Edit)
 		r.Delete("/api/servers/{serverID}/channels/{channelID}/messages/{messageID}", messagesH.Delete)
+		r.Put("/api/servers/{serverID}/channels/{channelID}/messages/{messageID}/reactions/{emoji}", messagesH.AddReaction)
+		r.Delete("/api/servers/{serverID}/channels/{channelID}/messages/{messageID}/reactions/{emoji}", messagesH.RemoveReaction)
 
 		// DMs
 		r.Get("/api/dms", dmsH.ListConversations)
