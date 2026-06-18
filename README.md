@@ -97,17 +97,97 @@ docker compose down -v       # stop and delete all data (destructive)
 
 ---
 
-## Deploying publicly
+## Production deployment
 
-1. Point a domain at your server
-2. Update `.env`:
-   ```env
-   BASE_URL=https://chat.yourdomain.com
-   ```
-3. Update your Google OAuth redirect URI to `https://chat.yourdomain.com/api/auth/callback`
-4. Put a reverse proxy (Caddy, nginx) in front of port 8080 to handle TLS
+There are two ways to run Conclave in production. Using pre-built images is recommended — it avoids needing build tools on the server and makes updates a one-liner.
 
-### Caddy example
+### Option A: Pre-built images (recommended)
+
+Every push to `main` and every `v*` tag publishes a Docker image to GitHub Container Registry. To deploy on a server:
+
+**1. Copy the production compose and env template**
+
+```bash
+curl -O https://raw.githubusercontent.com/kghunt/conclave/main/docker-compose.prod.yml
+curl -O https://raw.githubusercontent.com/kghunt/conclave/main/.env.prod.example
+cp .env.prod.example .env
+```
+
+**2. Fill in `.env`**
+
+```env
+POSTGRES_PASSWORD=a-strong-random-password
+JWT_SECRET=a-long-random-string-at-least-32-chars
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-client-secret
+BASE_URL=https://chat.yourdomain.com
+INSTANCE_ADMIN_EMAIL=you@gmail.com   # optional
+```
+
+Generate secrets:
+```bash
+openssl rand -base64 32   # run twice — once for each secret
+```
+
+**3. Update your Google OAuth redirect URI**
+
+In Google Cloud Console → OAuth credentials, add:
+```
+https://chat.yourdomain.com/api/auth/callback
+```
+
+**4. Start**
+
+```bash
+docker compose -f docker-compose.prod.yml up -d
+```
+
+**Updating to the latest release**
+
+```bash
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+**Pinning to a specific version**
+
+```bash
+TAG=v1.2.3 docker compose -f docker-compose.prod.yml up -d
+```
+
+---
+
+### Option B: Build from source
+
+Use the standard `docker-compose.yml` if you want to build the image on the server itself (requires Docker with Buildx):
+
+```bash
+cp .env.example .env   # fill in values
+docker compose up --build -d
+```
+
+---
+
+### Reverse proxy
+
+Conclave listens on port 8080. Put a reverse proxy in front to handle TLS.
+
+> **Important:** WebSocket support must be enabled on your proxy — the real-time chat requires a persistent `/ws` connection.
+
+#### Nginx Proxy Manager
+
+1. In NPM, create a new **Proxy Host**:
+   - **Domain**: `chat.yourdomain.com`
+   - **Scheme**: `http`
+   - **Forward Hostname/IP**: your server's IP (or `172.17.0.1` if NPM is in Docker on the same host)
+   - **Forward Port**: `8080`
+   - **Websockets Support**: ✅ enable this — required for chat
+2. On the **SSL** tab, request a Let's Encrypt certificate
+3. Set `BASE_URL=https://chat.yourdomain.com` in your `.env` and restart the app
+
+> If NPM and Conclave are both running in Docker on the same host, the easiest approach is to put them on a shared Docker network rather than routing through the host IP. Alternatively, exposing port `8080` to the host (the default) and pointing NPM at the host IP works fine.
+
+#### Caddy
 
 ```
 chat.yourdomain.com {
@@ -115,7 +195,7 @@ chat.yourdomain.com {
 }
 ```
 
-Caddy handles TLS automatically via Let's Encrypt.
+Caddy handles TLS and WebSocket proxying automatically.
 
 ---
 
