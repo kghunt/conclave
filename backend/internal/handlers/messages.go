@@ -399,13 +399,53 @@ func (h *MessagesHandler) AddReaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.db.Exec(r.Context(), `
+	tag, _ := h.db.Exec(r.Context(), `
 		INSERT INTO message_reactions (message_id, user_id, emoji)
 		VALUES ($1, $2, $3) ON CONFLICT DO NOTHING
 	`, messageID, userID, emoji)
 
 	h.broadcastReaction(channelID, messageID, emoji, userID, "add")
+
+	// Notify original author (only on first reaction to avoid spam)
+	if tag.RowsAffected() > 0 {
+		go h.notifyReaction(serverID, channelID, messageID, emoji, userID)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (h *MessagesHandler) notifyReaction(serverID, channelID, messageID, emoji, reactorID string) {
+	ctx := context.Background()
+
+	var authorID, authorName, reactorName string
+	h.db.QueryRow(ctx, `
+		SELECT msg.author_id, ua.display_name, ur.display_name
+		FROM messages msg
+		JOIN users ua ON ua.id = msg.author_id
+		JOIN users ur ON ur.id = $2
+		WHERE msg.id = $1
+	`, messageID, reactorID).Scan(&authorID, &authorName, &reactorName)
+
+	// Don't notify if the author is the one reacting
+	if authorID == "" || authorID == reactorID {
+		return
+	}
+
+	payload, _ := json.Marshal(map[string]string{
+		"message_id": messageID,
+		"channel_id": channelID,
+		"emoji":      emoji,
+		"reactor_id": reactorID,
+	})
+	h.hub.Broadcast("user:"+authorID, ws.Event{Type: "reaction.new", Payload: payload})
+
+	if h.push.enabled() {
+		h.push.SendToUser(authorID, PushPayload{
+			Title: reactorName + " reacted to your message",
+			Body:  emoji,
+			URL:   "/",
+		})
+	}
 }
 
 func (h *MessagesHandler) RemoveReaction(w http.ResponseWriter, r *http.Request) {
