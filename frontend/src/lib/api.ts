@@ -11,6 +11,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 		const err = await res.json().catch(() => ({ error: res.statusText }));
 		throw new Error(err.error ?? res.statusText);
 	}
+	if (res.status === 204) return undefined as T;
 	return res.json();
 }
 

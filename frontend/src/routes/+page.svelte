@@ -33,6 +33,14 @@
 			dmConversations.set(convs ?? []);
 			friends.set(fr ?? []);
 			friendRequests.set(reqs ?? []);
+
+			// Restore last active server
+			const lastServerId = localStorage.getItem('lastServerId');
+			if (lastServerId) {
+				const match = (s ?? []).find((sv) => sv.id === lastServerId);
+				if (match) activeServer.set(match);
+				else if ((s ?? []).length > 0) activeServer.set(s[0]);
+			}
 		})();
 
 		return () => mq.removeEventListener('change', handler);
@@ -44,11 +52,12 @@
 		activeDM.set(null);
 	}
 
-	// Load channels when active server changes; auto-select first channel
+	// Load channels when active server changes; auto-select first channel; persist choice
 	$effect(() => {
 		const srv = $activeServer;
 		if (!srv) return;
 		const id = srv.id;
+		localStorage.setItem('lastServerId', id);
 		api.listChannels(id).then((ch) => {
 			channels.set(ch ?? []);
 			if (ch?.length > 0) activeChannel.set(ch[0]);
