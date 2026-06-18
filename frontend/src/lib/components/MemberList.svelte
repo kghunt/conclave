@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api, type ServerMember } from '$lib/api';
-	import { activeServer, currentUser } from '$lib/stores';
+	import { activeServer, currentUser, activeDM, activeChannel, dmConversations } from '$lib/stores';
 	import Avatar from './Avatar.svelte';
 
-	let { serverId }: { serverId: string } = $props();
+	let { serverId, onDmStarted }: { serverId: string; onDmStarted?: () => void } = $props();
 
 	let members: ServerMember[] = $state([]);
 	let menuMember = $state<ServerMember | null>(null);
@@ -46,6 +46,17 @@
 	}
 
 	const isOwner = $derived($activeServer?.role === 'owner');
+
+	async function startDM(member: ServerMember) {
+		const conv = await api.getOrCreateDM(member.user.id);
+		dmConversations.update((prev) => {
+			if (prev.find((c) => c.id === conv.id)) return prev;
+			return [conv, ...prev];
+		});
+		activeChannel.set(null);
+		activeDM.set(conv);
+		onDmStarted?.();
+	}
 </script>
 
 <!-- close role menu on outside click -->
@@ -62,7 +73,7 @@
 			{group.role}s — {group.members.length}
 		</div>
 		{#each group.members as m}
-			<div class="member" class:clickable={isOwner && m.role !== 'owner' && m.user.id !== $currentUser?.id}>
+			<div class="member">
 				<Avatar url={m.user.avatar_url} name={m.user.display_name} userId={m.user.id} size={32} />
 				<div class="member-info">
 					<span class="member-name">{m.user.display_name}</span>
@@ -70,10 +81,17 @@
 						{m.role === 'owner' ? '👑 Owner' : m.role === 'admin' ? '⚡ Admin' : 'Member'}
 					</span>
 				</div>
-				{#if isOwner && m.role !== 'owner' && m.user.id !== $currentUser?.id}
-					<button class="role-menu-btn" onclick={(e) => { e.stopPropagation(); menuMember = menuMember?.user.id === m.user.id ? null : m; }} title="Manage role">
-						⋯
-					</button>
+				{#if m.user.id !== $currentUser?.id}
+					<div class="member-actions">
+						<button class="action-btn" onclick={() => startDM(m)} title="Send message">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+						</button>
+						{#if isOwner && m.role !== 'owner'}
+							<button class="action-btn" onclick={(e) => { e.stopPropagation(); menuMember = menuMember?.user.id === m.user.id ? null : m; }} title="Manage role">
+								⋯
+							</button>
+						{/if}
+					</div>
 					{#if menuMember?.user.id === m.user.id}
 						<div class="role-menu">
 							{#if m.role === 'member'}
@@ -154,20 +172,31 @@
 	.role-admin { color: #e8541e; }
 	.role-member { color: #8b8b99; }
 
-	.role-menu-btn {
+	.member-actions {
+		display: flex;
+		gap: 0.125rem;
+		opacity: 0;
+		transition: opacity 0.1s;
+		flex-shrink: 0;
+	}
+	.member:hover .member-actions { opacity: 1; }
+	.action-btn {
 		background: none;
 		border: none;
 		color: #8b8b99;
 		cursor: pointer;
-		font-size: 1rem;
 		padding: 0.2rem 0.3rem;
 		border-radius: 3px;
-		opacity: 0;
-		transition: opacity 0.1s;
 		line-height: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
-	.member:hover .role-menu-btn { opacity: 1; }
-	.role-menu-btn:hover { background: rgba(255,255,255,0.1); color: #f0eff4; }
+	.action-btn:hover { background: rgba(255,255,255,0.1); color: #f0eff4; }
+	@media (max-width: 767px) {
+		.member-actions { opacity: 1; }
+		.action-btn { padding: 0.35rem; }
+	}
 
 	.role-menu {
 		position: absolute;
