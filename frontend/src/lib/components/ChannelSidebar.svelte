@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api, type User } from '$lib/api';
-	import { activeServer, servers, channels, activeChannel, dmConversations, activeDM, currentUser, showProfileModal, friends, friendRequests, friendRequestsSent, mentionedChannels } from '$lib/stores';
+	import { activeServer, servers, channels, activeChannel, dmConversations, activeDM, currentUser, showProfileModal, friends, friendRequests, friendRequestsSent, mentionedChannels, voiceParticipants } from '$lib/stores';
 	import { socket } from '$lib/socket';
 	import type { Channel } from '$lib/api';
+	import { voiceState, joinVoice, leaveVoice } from '$lib/voice';
+	import VoicePanel from './VoicePanel.svelte';
 	import Avatar from './Avatar.svelte';
 	import AdminPanel from './AdminPanel.svelte';
 
@@ -159,6 +161,33 @@
 
 	let showNewChannel = $state(false);
 	let newChannelName = $state('');
+	let newChannelType = $state<'text' | 'voice'>('text');
+
+	// Load initial voice state when switching servers; listen for live updates via server room
+	$effect(() => {
+		const server = $activeServer;
+		if (!server) return;
+		api.getVoiceState(server.id)
+			.then((state) => voiceParticipants.set(state))
+			.catch(() => {});
+		const unsub = socket.on((event) => {
+			if (event.type === 'voice.joined') {
+				voiceParticipants.update((vp) => {
+					const peers = vp[event.payload.channel_id] ?? [];
+					if (peers.find((p) => p.user_id === event.payload.user.user_id)) return vp;
+					return { ...vp, [event.payload.channel_id]: [...peers, event.payload.user] };
+				});
+			} else if (event.type === 'voice.left') {
+				voiceParticipants.update((vp) => ({
+					...vp,
+					[event.payload.channel_id]: (vp[event.payload.channel_id] ?? []).filter(
+						(p) => p.user_id !== event.payload.user_id
+					)
+				}));
+			}
+		});
+		return unsub;
+	});
 
 	function selectChannel(ch: Channel) {
 		activeDM.set(null);
@@ -166,13 +195,22 @@
 		mentionedChannels.update(s => { s.delete(ch.id); return new Set(s); });
 	}
 
+	async function handleVoiceChannelClick(ch: Channel) {
+		if ($voiceState.channelId === ch.id) {
+			leaveVoice();
+		} else if ($activeServer) {
+			await joinVoice(ch.id, $activeServer.id).catch((e) => alert(e.message));
+		}
+	}
+
 	async function createChannel() {
 		if (!newChannelName.trim() || !$activeServer) return;
-		const ch = await api.createChannel($activeServer.id, { name: newChannelName, description: '' });
+		const ch = await api.createChannel($activeServer.id, { name: newChannelName, description: '', type: newChannelType });
 		channels.update((prev) => [...prev, ch]);
-		selectChannel(ch);
+		if (ch.type === 'text') selectChannel(ch);
 		showNewChannel = false;
 		newChannelName = '';
+		newChannelType = 'text';
 	}
 
 	async function openDM(userId: string) {
@@ -206,16 +244,28 @@
 
 		{#if showNewChannel}
 			<div class="new-channel">
+				<div class="new-channel-type">
+					<button
+						class="type-btn"
+						class:active={newChannelType === 'text'}
+						onclick={() => (newChannelType = 'text')}
+					>#</button>
+					<button
+						class="type-btn"
+						class:active={newChannelType === 'voice'}
+						onclick={() => (newChannelType = 'voice')}
+					>🔊</button>
+				</div>
 				<input
 					bind:value={newChannelName}
-					placeholder="channel-name"
+					placeholder={newChannelType === 'voice' ? 'voice-channel' : 'channel-name'}
 					onkeydown={(e) => e.key === 'Enter' && createChannel()}
 				/>
 				<button onclick={createChannel}>Add</button>
 			</div>
 		{/if}
 
-		{#each $channels as ch}
+		{#each $channels.filter((c) => c.type !== 'voice') as ch}
 			<button
 				class="channel-item"
 				class:active={$activeChannel?.id === ch.id}
@@ -229,6 +279,41 @@
 				{/if}
 			</button>
 		{/each}
+
+		{#if $channels.some((c) => c.type === 'voice')}
+			<div class="section-label" style="margin-top: 0.5rem">
+				<span>Voice Channels</span>
+			</div>
+			{#each $channels.filter((c) => c.type === 'voice') as ch}
+				{@const peers = $voiceParticipants[ch.id] ?? []}
+				{@const inThisChannel = $voiceState.channelId === ch.id}
+				<button
+					class="channel-item voice-channel-item"
+					class:active={inThisChannel}
+					onclick={() => handleVoiceChannelClick(ch)}
+				>
+					<span class="voice-ch-icon">🔊</span>
+					<span class="voice-ch-name">{ch.name}</span>
+					{#if peers.length > 0}
+						<span class="voice-count">{peers.length}</span>
+					{/if}
+				</button>
+				{#if peers.length > 0}
+					<div class="voice-participant-list">
+						{#each peers as peer}
+							<div class="voice-participant">
+								<img
+									src={peer.avatar_url || '/default-avatar.png'}
+									alt={peer.display_name}
+									class="vp-avatar"
+								/>
+								<span class="vp-name">{peer.display_name}</span>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			{/each}
+		{/if}
 	{:else}
 		<div class="server-header"><span>Direct Messages</span></div>
 	{/if}
@@ -312,6 +397,8 @@
 			</button>
 		</div>
 	{/each}
+
+	<VoicePanel />
 
 	<div class="user-bar">
 		{#if $currentUser}
@@ -620,6 +707,72 @@
 		opacity: 0.8;
 	}
 	.admin-btn:hover { opacity: 1; background: rgba(232,84,30,0.15); }
+	.new-channel-type {
+		display: flex;
+		gap: 2px;
+		flex-shrink: 0;
+	}
+	.type-btn {
+		background: rgba(255,255,255,0.05);
+		border: 1px solid var(--border);
+		color: var(--text-muted);
+		border-radius: 4px;
+		cursor: pointer;
+		padding: 0.2rem 0.35rem;
+		font-size: 0.8rem;
+		line-height: 1;
+	}
+	.type-btn.active {
+		background: var(--accent);
+		color: white;
+		border-color: var(--accent);
+	}
+	.voice-channel-item {
+		position: relative;
+	}
+	.voice-ch-icon {
+		font-size: 0.75rem;
+		flex-shrink: 0;
+	}
+	.voice-ch-name {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.voice-count {
+		font-size: 0.7rem;
+		font-weight: 700;
+		color: #43b581;
+		background: rgba(67,181,129,0.15);
+		border-radius: 8px;
+		padding: 0.1rem 0.35rem;
+		flex-shrink: 0;
+	}
+	.voice-participant-list {
+		padding: 2px 0.75rem 2px 2rem;
+	}
+	.voice-participant {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 2px 0;
+	}
+	.vp-avatar {
+		width: 16px;
+		height: 16px;
+		border-radius: 50%;
+		object-fit: cover;
+		flex-shrink: 0;
+	}
+	.vp-name {
+		font-size: 0.78rem;
+		color: var(--text-muted);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
 	.user-info {
 		display: flex;
 		align-items: center;

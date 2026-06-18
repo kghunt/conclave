@@ -99,7 +99,91 @@ func (h *WSHandler) onEvent(c *ws.Client, event ws.Event) {
 		}
 		h.hub.SetPresence(c.UserID(), body.Status)
 		go h.broadcastPresence(c.UserID(), body.Status)
+
+	case "voice.join":
+		var body struct {
+			ChannelID string `json:"channel_id"`
+		}
+		if err := json.Unmarshal(event.Payload, &body); err != nil || body.ChannelID == "" {
+			return
+		}
+		// Verify user is a member of the channel's server
+		if !c.HasRoom("channel:" + body.ChannelID) {
+			return
+		}
+		existingIDs := h.hub.VoiceJoin(body.ChannelID, c)
+
+		// Fetch user info for all existing peers and send voice.state to joiner
+		go func() {
+			peers := h.fetchVoicePeers(existingIDs)
+			statePayload, _ := json.Marshal(map[string]any{
+				"channel_id": body.ChannelID,
+				"peers":      peers,
+			})
+			data, _ := json.Marshal(ws.Event{Type: "voice.state", Payload: statePayload})
+			c.SendRaw(data)
+
+			// Fetch joiner info and broadcast voice.joined to channel and server rooms
+			var joiner struct {
+				UserID      string `json:"user_id"`
+				DisplayName string `json:"display_name"`
+				AvatarURL   string `json:"avatar_url"`
+			}
+			joiner.UserID = c.UserID()
+			h.db.QueryRow(context.Background(), `SELECT display_name, avatar_url FROM users WHERE id = $1`, c.UserID()).Scan(&joiner.DisplayName, &joiner.AvatarURL)
+			var serverID string
+			h.db.QueryRow(context.Background(), `SELECT server_id FROM channels WHERE id = $1`, body.ChannelID).Scan(&serverID)
+			joinedPayload, _ := json.Marshal(map[string]any{"channel_id": body.ChannelID, "user": joiner})
+			h.hub.BroadcastExcept("channel:"+body.ChannelID, c, ws.Event{Type: "voice.joined", Payload: joinedPayload})
+			if serverID != "" {
+				h.hub.BroadcastExcept("server:"+serverID, c, ws.Event{Type: "voice.joined", Payload: joinedPayload})
+			}
+		}()
+
+	case "voice.leave":
+		var body struct {
+			ChannelID string `json:"channel_id"`
+		}
+		if err := json.Unmarshal(event.Payload, &body); err != nil || body.ChannelID == "" {
+			return
+		}
+		h.hub.VoiceLeave(body.ChannelID, c)
+		var svrID string
+		h.db.QueryRow(context.Background(), `SELECT server_id FROM channels WHERE id = $1`, body.ChannelID).Scan(&svrID)
+		leftPayload, _ := json.Marshal(map[string]string{"channel_id": body.ChannelID, "user_id": c.UserID()})
+		h.hub.Broadcast("channel:"+body.ChannelID, ws.Event{Type: "voice.left", Payload: leftPayload})
+		if svrID != "" {
+			h.hub.Broadcast("server:"+svrID, ws.Event{Type: "voice.left", Payload: leftPayload})
+		}
+
+	case "voice.signal":
+		// Forward WebRTC signaling (offer/answer/candidate) to the target peer.
+		var body struct {
+			ChannelID string          `json:"channel_id"`
+			To        string          `json:"to"`
+			Signal    json.RawMessage `json:"signal"`
+		}
+		if err := json.Unmarshal(event.Payload, &body); err != nil || body.ChannelID == "" || body.To == "" {
+			return
+		}
+		fwdPayload, _ := json.Marshal(map[string]any{
+			"channel_id": body.ChannelID,
+			"from":       c.UserID(),
+			"signal":     body.Signal,
+		})
+		data, _ := json.Marshal(ws.Event{Type: "voice.signal", Payload: fwdPayload})
+		h.hub.VoiceSendTo(body.ChannelID, body.To, data)
 	}
+}
+
+func (h *WSHandler) fetchVoicePeers(userIDs []string) []map[string]string {
+	out := make([]map[string]string, 0, len(userIDs))
+	for _, uid := range userIDs {
+		var name, avatar string
+		h.db.QueryRow(context.Background(), `SELECT display_name, avatar_url FROM users WHERE id = $1`, uid).Scan(&name, &avatar)
+		out = append(out, map[string]string{"user_id": uid, "display_name": name, "avatar_url": avatar})
+	}
+	return out
 }
 
 func (h *WSHandler) RunPresenceBroadcaster() {
