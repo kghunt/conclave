@@ -84,6 +84,8 @@
 </script>
 
 <div class="feed" bind:this={container} onscroll={onScroll}>
+	<div class="spacer"></div>
+
 	{#if messages.length === 0}
 		<div class="empty">No messages yet. Say hello!</div>
 	{/if}
@@ -164,15 +166,14 @@
 	.feed {
 		flex: 1;
 		overflow-y: auto;
-		padding: 1rem 0;
+		padding-bottom: 0.5rem;
 		display: flex;
 		flex-direction: column;
 	}
+	.spacer { flex: 1; }
 	.empty {
-		flex: 1;
-		display: flex;
-		align-items: center;
-		justify-content: center;
+		padding: 1rem;
+		text-align: center;
 		color: #8b8b99;
 		font-size: 0.9rem;
 	}
