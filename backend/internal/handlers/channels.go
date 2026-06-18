@@ -75,7 +75,7 @@ func (h *ChannelsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name required")
 		return
 	}
-	if body.Type != "voice" {
+	if body.Type != "voice" && body.Type != "threads" {
 		body.Type = "text"
 	}
 

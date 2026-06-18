@@ -20,7 +20,10 @@ export type WSEvent =
 	| { type: 'voice.state'; payload: { channel_id: string; peers: import('./api').VoicePeer[] } }
 	| { type: 'voice.joined'; payload: { channel_id: string; user: import('./api').VoicePeer } }
 	| { type: 'voice.left'; payload: { channel_id: string; user_id: string } }
-	| { type: 'voice.signal'; payload: { channel_id: string; from: string; signal: RTCSessionDescriptionInit | RTCIceCandidateInit } };
+	| { type: 'voice.signal'; payload: { channel_id: string; from: string; signal: RTCSessionDescriptionInit | RTCIceCandidateInit } }
+	| { type: 'thread.new'; payload: import('./api').Thread }
+	| { type: 'thread.updated'; payload: import('./api').Thread }
+	| { type: 'thread.message.new'; payload: import('./api').ThreadMessage };
 
 type Handler = (event: WSEvent) => void;
 
