@@ -3,7 +3,11 @@
 	import data from '@emoji-mart/data';
 	import { Picker } from 'emoji-mart';
 
-	let { onSelect, onClose }: { onSelect: (emoji: string) => void; onClose: () => void } = $props();
+	let { onSelect, onClose, anchorRect = null }: {
+		onSelect: (emoji: string) => void;
+		onClose: () => void;
+		anchorRect?: DOMRect | null;
+	} = $props();
 
 	let container: HTMLDivElement;
 
@@ -24,7 +28,9 @@
 </script>
 
 <div class="overlay" onclick={onClose}></div>
-<div class="picker-wrap" bind:this={container}></div>
+<div class="picker-wrap" bind:this={container} style={anchorRect
+	? `position:fixed;bottom:${window.innerHeight - anchorRect.top + 8}px;left:${Math.min(anchorRect.left, window.innerWidth - 360)}px`
+	: ''}></div>
 
 <style>
 	.overlay {

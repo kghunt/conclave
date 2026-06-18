@@ -43,6 +43,7 @@
 	}: { messages: AnyMessage[]; isDM?: boolean; onreply?: (msg: Message) => void; onreact?: (messageId: string, emoji: string) => void } = $props();
 
 	let reactionPickerFor = $state<string | null>(null);
+	let reactionPickerRect = $state<DOMRect | null>(null);
 
 	let container: HTMLElement;
 	let stickToBottom = true;
@@ -226,15 +227,11 @@
 			{#if !editing}
 				<div class="msg-actions">
 					{#if isMessage(msg) && !isDM && onreact}
-						<div class="reaction-btn-wrap">
-							<button class="action-btn" onclick={(e) => { e.stopPropagation(); reactionPickerFor = reactionPickerFor === msg.id ? null : msg.id; }} title="Add reaction">😊</button>
-							{#if reactionPickerFor === msg.id}
-								<EmojiPicker
-									onSelect={(emoji) => { onreact(msg.id, emoji); reactionPickerFor = null; }}
-									onClose={() => { reactionPickerFor = null; }}
-								/>
-							{/if}
-						</div>
+						<button class="action-btn" onclick={(e) => {
+							e.stopPropagation();
+							if (reactionPickerFor === msg.id) { reactionPickerFor = null; reactionPickerRect = null; }
+							else { reactionPickerFor = msg.id; reactionPickerRect = (e.currentTarget as HTMLElement).getBoundingClientRect(); }
+						}} title="Add reaction">😊</button>
 					{/if}
 					{#if isMessage(msg) && onreply}
 						<button class="action-btn" onclick={() => onreply(msg as Message)} title="Reply">↩</button>
@@ -250,6 +247,15 @@
 		</div>
 	{/each}
 </div>
+
+{#if reactionPickerFor && reactionPickerRect && onreact}
+	{@const msgId = reactionPickerFor}
+	<EmojiPicker
+		anchorRect={reactionPickerRect}
+		onSelect={(emoji) => { onreact(msgId, emoji); reactionPickerFor = null; reactionPickerRect = null; }}
+		onClose={() => { reactionPickerFor = null; reactionPickerRect = null; }}
+	/>
+{/if}
 
 <style>
 	.feed {
@@ -407,7 +413,6 @@
 	}
 	.action-btn:hover { background: var(--border); }
 	.action-btn.delete:hover { background: #e04545; border-color: #e04545; }
-	.reaction-btn-wrap { position: relative; }
 	.reactions {
 		display: flex;
 		flex-wrap: wrap;
