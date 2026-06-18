@@ -8,7 +8,8 @@ export type WSEvent =
 	| { type: 'dm.new'; payload: DirectMessage }
 	| { type: 'dm.delete'; payload: { id: string; conversation_id: string } }
 	| { type: 'member.join'; payload: { server_id: string; user_id: string } }
-	| { type: 'member.leave'; payload: { server_id: string; user_id: string } };
+	| { type: 'member.leave'; payload: { server_id: string; user_id: string } }
+	| { type: 'friend.accepted'; payload: { id: string; display_name: string; avatar_url: string } };
 
 type Handler = (event: WSEvent) => void;
 
