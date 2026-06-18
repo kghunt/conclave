@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { api, type Message, type DirectMessage } from '$lib/api';
+	import { api, type Message, type DirectMessage, type MessageReply } from '$lib/api';
 	import { socket } from '$lib/socket';
 	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent, instanceConfig, serverMembers, mentionedChannels, presenceMap } from '$lib/stores';
 	import type { ServerMember } from '$lib/api';
@@ -159,6 +159,7 @@
 	let showEmoji = $state(false);
 	let fileInput: HTMLInputElement;
 	let textarea: HTMLTextAreaElement;
+	let replyingTo = $state<Message | null>(null);
 
 	// Typing indicator
 	let typers = $state<Record<string, string>>({}); // userId → displayName
@@ -183,10 +184,11 @@
 		return () => unsub();
 	});
 
-	// Clear typers when switching channels or DMs
+	// Clear typers and reply state when switching channels or DMs
 	$effect(() => {
 		$activeChannel; $activeDM;
 		typers = {};
+		replyingTo = null;
 		Object.values(typerTimeouts).forEach(clearTimeout);
 	});
 
@@ -287,10 +289,12 @@
 		if (!text) return;
 		input = '';
 		showMentionPopup = false;
+		const replyId = replyingTo?.id;
+		replyingTo = null;
 		if ($activeDM) {
 			await api.sendDM($activeDM.id, text);
 		} else if ($activeChannel && $activeServer) {
-			await api.sendMessage($activeServer.id, $activeChannel.id, text);
+			await api.sendMessage($activeServer.id, $activeChannel.id, text, replyId);
 		}
 	}
 
@@ -376,7 +380,18 @@
 			<MessageFeed
 				messages={$activeChannel ? messages : dmMessages}
 				isDM={!!$activeDM}
+				onreply={(msg) => { replyingTo = msg; setTimeout(() => textarea?.focus(), 0); }}
 			/>
+
+			{#if replyingTo}
+				<div class="reply-bar">
+					<div class="reply-bar-preview">
+						<span class="reply-bar-name">Replying to {replyingTo.author?.display_name}</span>
+						<span class="reply-bar-text">{replyingTo.content.startsWith('http') ? '[image]' : replyingTo.content.slice(0, 80)}{replyingTo.content.length > 80 ? '…' : ''}</span>
+					</div>
+					<button class="reply-bar-cancel" onclick={() => replyingTo = null}>✕</button>
+				</div>
+			{/if}
 
 			<div class="typing-bar" class:visible={!!typingLabel}>
 				<span class="typing-dots">
@@ -528,6 +543,45 @@
 	}
 	.icon-btn:hover { color: var(--text); background: rgba(255,255,255,0.1); }
 	.icon-btn.active { color: var(--accent); }
+	.reply-bar {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.375rem 1rem;
+		background: var(--bg-input);
+		border-top: 1px solid var(--border);
+		flex-shrink: 0;
+	}
+	.reply-bar-preview {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		gap: 0.5rem;
+		align-items: baseline;
+	}
+	.reply-bar-name {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: var(--accent);
+		white-space: nowrap;
+	}
+	.reply-bar-text {
+		font-size: 0.75rem;
+		color: var(--text-muted);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.reply-bar-cancel {
+		background: none;
+		border: none;
+		color: var(--text-muted);
+		cursor: pointer;
+		font-size: 0.8rem;
+		padding: 0.25rem;
+		flex-shrink: 0;
+	}
+	.reply-bar-cancel:hover { color: var(--text); }
 	.typing-bar {
 		height: 0;
 		overflow: hidden;

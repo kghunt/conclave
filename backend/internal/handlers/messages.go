@@ -52,24 +52,22 @@ func (h *MessagesHandler) List(w http.ResponseWriter, r *http.Request) {
 		beforeTime = &t
 	}
 
+	const listQuery = `
+		SELECT m.id, m.channel_id, m.content, m.edited_at, m.created_at,
+		       u.id, u.display_name, u.bio, u.avatar_url,
+		       r.id, r.content, ru.display_name
+		FROM messages m
+		JOIN users u ON u.id = m.author_id
+		LEFT JOIN messages r ON r.id = m.reply_to_id
+		LEFT JOIN users ru ON ru.id = r.author_id
+		WHERE m.channel_id = $1`
+
 	var rows interface{ Next() bool; Scan(...any) error; Close() }
 	var err error
 	if beforeTime != nil {
-		rows, err = h.db.Query(r.Context(), `
-			SELECT m.id, m.channel_id, m.content, m.edited_at, m.created_at,
-			       u.id, u.display_name, u.bio, u.avatar_url
-			FROM messages m JOIN users u ON u.id = m.author_id
-			WHERE m.channel_id = $1 AND m.created_at < $2
-			ORDER BY m.created_at DESC LIMIT 50
-		`, channelID, *beforeTime)
+		rows, err = h.db.Query(r.Context(), listQuery+` AND m.created_at < $2 ORDER BY m.created_at DESC LIMIT 50`, channelID, *beforeTime)
 	} else {
-		rows, err = h.db.Query(r.Context(), `
-			SELECT m.id, m.channel_id, m.content, m.edited_at, m.created_at,
-			       u.id, u.display_name, u.bio, u.avatar_url
-			FROM messages m JOIN users u ON u.id = m.author_id
-			WHERE m.channel_id = $1
-			ORDER BY m.created_at DESC LIMIT 50
-		`, channelID)
+		rows, err = h.db.Query(r.Context(), listQuery+` ORDER BY m.created_at DESC LIMIT 50`, channelID)
 	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "query failed")
@@ -81,9 +79,14 @@ func (h *MessagesHandler) List(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var m models.Message
 		m.Author = &models.User{}
+		var replyID, replyContent, replyAuthor *string
 		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Content, &m.EditedAt, &m.CreatedAt,
-			&m.Author.ID, &m.Author.DisplayName, &m.Author.Bio, &m.Author.AvatarURL); err != nil {
+			&m.Author.ID, &m.Author.DisplayName, &m.Author.Bio, &m.Author.AvatarURL,
+			&replyID, &replyContent, &replyAuthor); err != nil {
 			continue
+		}
+		if replyID != nil {
+			m.ReplyTo = &models.MessageReply{ID: *replyID, Content: *replyContent, AuthorName: *replyAuthor}
 		}
 		messages = append(messages, m)
 	}
@@ -107,7 +110,8 @@ func (h *MessagesHandler) Send(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Content string `json:"content"`
+		Content   string `json:"content"`
+		ReplyToID string `json:"reply_to_id"`
 	}
 	if err := decodeJSON(r, &body); err != nil || body.Content == "" {
 		writeErr(w, http.StatusBadRequest, "content required")
@@ -120,21 +124,39 @@ func (h *MessagesHandler) Send(w http.ResponseWriter, r *http.Request) {
 
 	var m models.Message
 	m.Author = &models.User{}
+	var replyToID *string
+	if body.ReplyToID != "" {
+		replyToID = &body.ReplyToID
+	}
 	err := h.db.QueryRow(r.Context(), `
 		WITH ins AS (
-			INSERT INTO messages (channel_id, author_id, content) VALUES ($1, $2, $3)
-			RETURNING id, channel_id, content, edited_at, created_at, author_id
+			INSERT INTO messages (channel_id, author_id, content, reply_to_id)
+			VALUES ($1, $2, $3, $4)
+			RETURNING id, channel_id, content, reply_to_id, edited_at, created_at, author_id
 		)
 		SELECT ins.id, ins.channel_id, ins.content, ins.edited_at, ins.created_at,
 		       u.id, u.display_name, u.bio, u.avatar_url
 		FROM ins JOIN users u ON u.id = ins.author_id
-	`, channelID, userID, body.Content).Scan(
+	`, channelID, userID, body.Content, replyToID).Scan(
 		&m.ID, &m.ChannelID, &m.Content, &m.EditedAt, &m.CreatedAt,
 		&m.Author.ID, &m.Author.DisplayName, &m.Author.Bio, &m.Author.AvatarURL,
 	)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "send failed")
 		return
+	}
+
+	// Populate reply_to info if applicable
+	if replyToID != nil {
+		var reply models.MessageReply
+		h.db.QueryRow(r.Context(), `
+			SELECT m.id, m.content, u.display_name
+			FROM messages m JOIN users u ON u.id = m.author_id
+			WHERE m.id = $1
+		`, *replyToID).Scan(&reply.ID, &reply.Content, &reply.AuthorName)
+		if reply.ID != "" {
+			m.ReplyTo = &reply
+		}
 	}
 
 	payload, _ := json.Marshal(m)
@@ -253,17 +275,31 @@ func (h *MessagesHandler) notifyMentions(serverID string, msg models.Message) {
 
 func (h *MessagesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	messageID := chi.URLParam(r, "messageID")
+	channelID := chi.URLParam(r, "channelID")
 	userID := middleware.UserID(r)
 
+	// Try author delete first
 	tag, err := h.db.Exec(r.Context(), `DELETE FROM messages WHERE id=$1 AND author_id=$2`, messageID, userID)
 	if err != nil || tag.RowsAffected() == 0 {
-		writeErr(w, http.StatusForbidden, "not your message")
-		return
+		// Allow server admin/owner to delete any message
+		var role string
+		h.db.QueryRow(r.Context(), `
+			SELECT sm.role FROM messages m
+			JOIN channels c ON c.id = m.channel_id
+			JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = $2
+			WHERE m.id = $1
+		`, messageID, userID).Scan(&role)
+		if role != "owner" && role != "admin" {
+			writeErr(w, http.StatusForbidden, "not your message")
+			return
+		}
+		if _, err := h.db.Exec(r.Context(), `DELETE FROM messages WHERE id=$1`, messageID); err != nil {
+			writeErr(w, http.StatusInternalServerError, "delete failed")
+			return
+		}
 	}
 
-	channelID := chi.URLParam(r, "channelID")
 	payload, _ := json.Marshal(map[string]string{"id": messageID, "channel_id": channelID})
 	h.hub.Broadcast("channel:"+channelID, ws.Event{Type: "message.delete", Payload: payload})
-
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
