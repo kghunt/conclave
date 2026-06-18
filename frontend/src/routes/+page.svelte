@@ -2,7 +2,8 @@
 	import { onMount } from 'svelte';
 	import { api, type Message, type DirectMessage, type MessageReply, type Thread } from '$lib/api';
 	import { socket } from '$lib/socket';
-	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent, instanceConfig, serverMembers, mentionedChannels, presenceMap } from '$lib/stores';
+	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent, instanceConfig, serverMembers, mentionedChannels, presenceMap, notifPrefs } from '$lib/stores';
+	import { playMessageSound, playMentionSound, playDMSound } from '$lib/sounds';
 	import type { ServerMember } from '$lib/api';
 	import ServerList from '$lib/components/ServerList.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
@@ -118,6 +119,9 @@
 				messages = [...messages, event.payload];
 				api.markRead(serverId, channelId);
 				channels.update((cs) => cs.map((c) => c.id === channelId ? { ...c, unread_count: 0 } : c));
+				if ($notifPrefs.messageSound && event.payload.author?.id !== $currentUser?.id) {
+					playMessageSound();
+				}
 			}
 			if (event.type === 'message.edit' && event.payload.channel_id === channelId) {
 				messages = messages.map((m) => m.id === event.payload.id ? event.payload : m);
@@ -148,6 +152,9 @@
 		const unsub = socket.on((event) => {
 			if (event.type === 'dm.new' && event.payload.conversation_id === convId) {
 				dmMessages = [...dmMessages, event.payload];
+				if ($notifPrefs.dmSound && event.payload.sender?.id !== $currentUser?.id) {
+					playDMSound();
+				}
 			}
 			if (event.type === 'dm.delete' && event.payload.conversation_id === convId) {
 				dmMessages = dmMessages.filter((m) => m.id !== event.payload.id);
@@ -221,7 +228,7 @@
 			: [] as ServerMember[]
 	);
 
-	// Listen for mentions, kicks, bans on the personal WS room
+	// Listen for mentions, DMs from background conversations, kicks/bans on the personal WS room
 	$effect(() => {
 		const uid = $currentUser?.id;
 		if (!uid) return;
@@ -231,6 +238,11 @@
 				if ($activeChannel?.id !== chId) {
 					mentionedChannels.update(s => new Set([...s, chId]));
 				}
+				if ($notifPrefs.mentionSound) playMentionSound();
+			}
+			// dm.new delivered via user room = message in a non-active conversation
+			if (event.type === 'dm.new' && event.payload.conversation_id !== $activeDM?.id && event.payload.sender?.id !== uid) {
+				if ($notifPrefs.dmSound) playDMSound();
 			}
 			if (event.type === 'member.kicked' || event.type === 'member.banned') {
 				const sid = event.payload.server_id;

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { api } from '$lib/api';
-	import { currentUser } from '$lib/stores';
+	import { currentUser, notifPrefs } from '$lib/stores';
+	import { playMessageSound, playMentionSound, playDMSound } from '$lib/sounds';
 	import { defaultAvatarUrl } from '$lib/avatar';
 
 	let { onclose }: { onclose: () => void } = $props();
@@ -83,6 +84,61 @@
 			Bio
 			<textarea bind:value={bio} rows="3"></textarea>
 		</label>
+
+		<div class="sounds-section">
+			<div class="sounds-title">Notification Sounds</div>
+			<div class="sound-row">
+				<div class="sound-label">
+					<span>Message sounds</span>
+					<span class="sound-hint">When a message arrives in the active channel</span>
+				</div>
+				<button
+					class="toggle"
+					class:on={$notifPrefs.messageSound}
+					onclick={() => {
+						notifPrefs.update(p => ({ ...p, messageSound: !p.messageSound }));
+						if (!$notifPrefs.messageSound) playMessageSound();
+					}}
+					aria-label="Toggle message sounds"
+				>
+					<span class="knob"></span>
+				</button>
+			</div>
+			<div class="sound-row">
+				<div class="sound-label">
+					<span>Mention sounds</span>
+					<span class="sound-hint">When someone @mentions you</span>
+				</div>
+				<button
+					class="toggle"
+					class:on={$notifPrefs.mentionSound}
+					onclick={() => {
+						notifPrefs.update(p => ({ ...p, mentionSound: !p.mentionSound }));
+						if (!$notifPrefs.mentionSound) playMentionSound();
+					}}
+					aria-label="Toggle mention sounds"
+				>
+					<span class="knob"></span>
+				</button>
+			</div>
+			<div class="sound-row">
+				<div class="sound-label">
+					<span>DM sounds</span>
+					<span class="sound-hint">When you receive a direct message</span>
+				</div>
+				<button
+					class="toggle"
+					class:on={$notifPrefs.dmSound}
+					onclick={() => {
+						notifPrefs.update(p => ({ ...p, dmSound: !p.dmSound }));
+						if (!$notifPrefs.dmSound) playDMSound();
+					}}
+					aria-label="Toggle DM sounds"
+				>
+					<span class="knob"></span>
+				</button>
+			</div>
+		</div>
 
 		<div class="actions">
 			<button onclick={onclose} class="cancel">Cancel</button>
@@ -201,4 +257,64 @@
 		font-size: 0.9rem;
 	}
 	.save:disabled { opacity: 0.6; cursor: not-allowed; }
+	.sounds-section {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		border-top: 1px solid var(--border);
+		padding-top: 0.75rem;
+	}
+	.sounds-title {
+		font-size: 0.75rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--text-muted);
+		margin-bottom: 0.25rem;
+	}
+	.sound-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		padding: 0.35rem 0;
+	}
+	.sound-label {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.sound-label span:first-child {
+		font-size: 0.88rem;
+		color: var(--text);
+	}
+	.sound-hint {
+		font-size: 0.75rem;
+		color: var(--text-muted);
+	}
+	.toggle {
+		position: relative;
+		width: 38px;
+		height: 22px;
+		border-radius: 11px;
+		background: var(--border);
+		border: none;
+		cursor: pointer;
+		flex-shrink: 0;
+		transition: background 0.2s;
+		padding: 0;
+	}
+	.toggle.on { background: var(--accent); }
+	.knob {
+		position: absolute;
+		top: 3px;
+		left: 3px;
+		width: 16px;
+		height: 16px;
+		border-radius: 50%;
+		background: white;
+		transition: transform 0.2s;
+		display: block;
+	}
+	.toggle.on .knob { transform: translateX(16px); }
 </style>
