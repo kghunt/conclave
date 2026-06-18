@@ -189,6 +189,18 @@
 		return unsub;
 	});
 
+	// Keep current user in voiceParticipants while they're in voice
+	$effect(() => {
+		const chId = $voiceState.channelId;
+		const user = $currentUser;
+		if (!chId || !user) return;
+		voiceParticipants.update((vp) => {
+			const peers = vp[chId] ?? [];
+			if (peers.find((p) => p.user_id === user.id)) return vp;
+			return { ...vp, [chId]: [...peers, { user_id: user.id, display_name: user.display_name, avatar_url: user.avatar_url }] };
+		});
+	});
+
 	function selectChannel(ch: Channel) {
 		activeDM.set(null);
 		activeChannel.set(ch);
@@ -238,6 +250,7 @@
 </script>
 
 <aside class="sidebar">
+<div class="sidebar-scroll">
 	{#if $activeServer}
 		<div class="server-header">
 			<span>{$activeServer.name}</span>
@@ -336,7 +349,7 @@
 		<div class="server-header"><span>Direct Messages</span></div>
 	{/if}
 
-	<div class="section-label" style="margin-top: auto">Direct Messages</div>
+	<div class="section-label">Direct Messages</div>
 	{#each $dmConversations as conv}
 		<button
 			class="channel-item"
@@ -416,9 +429,11 @@
 		</div>
 	{/each}
 
-	<VoicePanel />
+</div><!-- end sidebar-scroll -->
 
-	<div class="user-bar">
+<VoicePanel />
+
+<div class="user-bar">
 		{#if $currentUser}
 			<button class="user-info" onclick={() => showProfileModal.set(true)} title="Edit profile">
 				<Avatar url={$currentUser.avatar_url} name={$currentUser.display_name} userId={$currentUser.id} size={32} showPresence />
@@ -458,7 +473,12 @@
 		display: flex;
 		flex-direction: column;
 		flex-shrink: 0;
+		overflow: hidden;
+	}
+	.sidebar-scroll {
+		flex: 1;
 		overflow-y: auto;
+		min-height: 0;
 	}
 	@media (max-width: 767px) {
 		.sidebar { width: 100%; flex: 1; }
@@ -680,7 +700,6 @@
 		gap: 0.5rem;
 		padding: 0.625rem 0.75rem;
 		background: #0e0e10;
-		margin-top: auto;
 		flex-shrink: 0;
 	}
 	.username {
