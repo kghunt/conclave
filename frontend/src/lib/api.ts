@@ -98,6 +98,13 @@ export const api = {
 	pushUnsubscribe: (endpoint: string) =>
 		req<void>('DELETE', '/push/subscribe', { endpoint }),
 
+	// public config
+	getConfig: () => req<InstanceConfig>('GET', '/config'),
+
+	// space discovery
+	discoverServers: (q: string) =>
+		req<ServerDiscovery[]>('GET', `/servers/discover?q=${encodeURIComponent(q)}`),
+
 	// instance admin
 	getAdminSettings: () => req<AdminSettings>('GET', '/admin/settings'),
 	updateAdminSettings: (data: Partial<AdminSettings>) => req<void>('PATCH', '/admin/settings', data),
@@ -131,7 +138,21 @@ export interface User {
 export interface AdminSettings {
 	message_retention_days: string;
 	inactive_space_retention_days: string;
-	[key: string]: string;
+	allow_user_space_creation?: string;
+	[key: string]: string | undefined;
+}
+
+export interface InstanceConfig {
+	allow_user_space_creation: boolean;
+}
+
+export interface ServerDiscovery {
+	id: string;
+	name: string;
+	description: string;
+	icon_url: string;
+	member_count: number;
+	is_member: boolean;
 }
 
 export interface Server {
