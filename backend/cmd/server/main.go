@@ -48,6 +48,7 @@ func main() {
 	adminH := handlers.NewAdmin(pool, cfg.InstanceAdminEmail)
 	serversH := handlers.NewServers(pool, hub, cfg.InstanceAdminEmail)
 	channelsH := handlers.NewChannels(pool, hub)
+	threadsH := handlers.NewThreads(pool, hub)
 	pushH := handlers.NewPush(pool, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDEmail)
 	friendsH := handlers.NewFriends(pool, hub)
 	messagesH := handlers.NewMessages(pool, hub, pushH)
@@ -118,6 +119,12 @@ func main() {
 		r.Delete("/api/servers/{serverID}/channels/{channelID}", channelsH.Delete)
 		r.Post("/api/servers/{serverID}/channels/{channelID}/read", channelsH.MarkRead)
 		r.Get("/api/servers/{serverID}/voice", channelsH.VoiceState)
+
+		// threads
+		r.Get("/api/servers/{serverID}/channels/{channelID}/threads", threadsH.List)
+		r.Post("/api/servers/{serverID}/channels/{channelID}/threads", threadsH.Create)
+		r.Get("/api/threads/{threadID}/messages", threadsH.ListMessages)
+		r.Post("/api/threads/{threadID}/messages", threadsH.SendMessage)
 
 		// messages
 		r.Get("/api/servers/{serverID}/channels/{channelID}/messages", messagesH.List)

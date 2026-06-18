@@ -49,10 +49,18 @@ export const api = {
 
 	// channels
 	listChannels: (serverId: string) => req<Channel[]>('GET', `/servers/${serverId}/channels`),
-	createChannel: (serverId: string, data: { name: string; description: string; type?: 'text' | 'voice' }) =>
+	createChannel: (serverId: string, data: { name: string; description: string; type?: 'text' | 'voice' | 'threads' }) =>
 		req<Channel>('POST', `/servers/${serverId}/channels`, data),
 	getVoiceState: (serverId: string) =>
 		req<Record<string, VoicePeer[]>>('GET', `/servers/${serverId}/voice`),
+	listThreads: (serverId: string, channelId: string) =>
+		req<Thread[]>('GET', `/servers/${serverId}/channels/${channelId}/threads`),
+	createThread: (serverId: string, channelId: string, title: string) =>
+		req<Thread>('POST', `/servers/${serverId}/channels/${channelId}/threads`, { title }),
+	listThreadMessages: (threadId: string) =>
+		req<ThreadMessage[]>('GET', `/threads/${threadId}/messages`),
+	sendThreadMessage: (threadId: string, content: string) =>
+		req<ThreadMessage>('POST', `/threads/${threadId}/messages`, { content }),
 	deleteChannel: (serverId: string, channelId: string) =>
 		req<void>('DELETE', `/servers/${serverId}/channels/${channelId}`),
 	markRead: (serverId: string, channelId: string) =>
@@ -221,10 +229,29 @@ export interface Channel {
 	server_id: string;
 	name: string;
 	description: string;
-	type: 'text' | 'voice';
+	type: 'text' | 'voice' | 'threads';
 	position: number;
 	unread_count: number;
 	created_at: string;
+}
+
+export interface Thread {
+	id: string;
+	channel_id: string;
+	title: string;
+	created_by: User;
+	created_at: string;
+	last_message_at: string;
+	message_count: number;
+}
+
+export interface ThreadMessage {
+	id: string;
+	thread_id: string;
+	author: User;
+	content: string;
+	created_at: string;
+	edited_at?: string;
 }
 
 export interface VoicePeer {

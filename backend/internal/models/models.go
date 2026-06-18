@@ -55,6 +55,25 @@ type VoicePeer struct {
 	AvatarURL   string `json:"avatar_url"`
 }
 
+type Thread struct {
+	ID            string    `json:"id"`
+	ChannelID     string    `json:"channel_id"`
+	Title         string    `json:"title"`
+	CreatedBy     *User     `json:"created_by"`
+	CreatedAt     time.Time `json:"created_at"`
+	LastMessageAt time.Time `json:"last_message_at"`
+	MessageCount  int       `json:"message_count"`
+}
+
+type ThreadMessage struct {
+	ID        string     `json:"id"`
+	ThreadID  string     `json:"thread_id"`
+	Author    *User      `json:"author"`
+	Content   string     `json:"content"`
+	CreatedAt time.Time  `json:"created_at"`
+	EditedAt  *time.Time `json:"edited_at,omitempty"`
+}
+
 type MessageReply struct {
 	ID         string `json:"id"`
 	Content    string `json:"content"`

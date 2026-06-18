@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { api, type Message, type DirectMessage, type MessageReply } from '$lib/api';
+	import { api, type Message, type DirectMessage, type MessageReply, type Thread } from '$lib/api';
 	import { socket } from '$lib/socket';
 	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent, instanceConfig, serverMembers, mentionedChannels, presenceMap } from '$lib/stores';
 	import type { ServerMember } from '$lib/api';
@@ -10,9 +10,12 @@
 	import MemberList from '$lib/components/MemberList.svelte';
 	import ProfileModal from '$lib/components/ProfileModal.svelte';
 	import EmojiPicker from '$lib/components/EmojiPicker.svelte';
+	import ThreadChannel from '$lib/components/ThreadChannel.svelte';
+	import ThreadView from '$lib/components/ThreadView.svelte';
 
 	let messages: Message[] = $state([]);
 	let dmMessages: DirectMessage[] = $state([]);
+	let activeThread = $state<Thread | null>(null);
 	let input = $state('');
 	let showMembers = $state(true);
 	let isMobile = $state(false);
@@ -97,6 +100,8 @@
 		const ch = $activeChannel;
 		const srv = $activeServer;
 		if (!ch || !srv) return;
+		// Thread channels and voice channels manage their own subscriptions
+		if (ch.type === 'threads' || ch.type === 'voice') return;
 
 		messages = [];
 		const channelId = ch.id;
@@ -184,11 +189,12 @@
 		return () => unsub();
 	});
 
-	// Clear typers and reply state when switching channels or DMs
+	// Clear typers, reply state, and active thread when switching channels or DMs
 	$effect(() => {
 		$activeChannel; $activeDM;
 		typers = {};
 		replyingTo = null;
+		activeThread = null;
 		Object.values(typerTimeouts).forEach(clearTimeout);
 	});
 
@@ -374,7 +380,19 @@
 					</button>
 				{/if}
 				<span class="channel-name">
-					{#if $activeChannel}# {$activeChannel.name}{/if}
+					{#if $activeChannel}
+						{#if $activeChannel.type === 'threads'}
+							{#if activeThread}
+								💬 {$activeChannel.name} / {activeThread.title}
+							{:else}
+								💬 {$activeChannel.name}
+							{/if}
+						{:else if $activeChannel.type === 'voice'}
+							🔊 {$activeChannel.name}
+						{:else}
+							# {$activeChannel.name}
+						{/if}
+					{/if}
 					{#if $activeDM}@ {$activeDM.other_user.display_name}{/if}
 				</span>
 				<div class="header-actions">
@@ -385,6 +403,14 @@
 					{/if}
 				</div>
 			</header>
+
+			{#if $activeChannel?.type === 'threads'}
+				{#if activeThread}
+					<ThreadView thread={activeThread} onback={() => (activeThread = null)} />
+				{:else}
+					<ThreadChannel onopen={(t) => (activeThread = t)} />
+				{/if}
+			{:else}
 
 			<MessageFeed
 				messages={$activeChannel ? messages : dmMessages}
@@ -463,6 +489,7 @@
 					disabled={(!$activeChannel && !$activeDM) || uploading}
 				></textarea>
 			</div>
+			{/if}
 		</main>
 
 		{#if showMembers && $activeChannel && $activeServer}

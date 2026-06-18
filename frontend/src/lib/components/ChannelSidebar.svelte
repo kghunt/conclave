@@ -161,7 +161,7 @@
 
 	let showNewChannel = $state(false);
 	let newChannelName = $state('');
-	let newChannelType = $state<'text' | 'voice'>('text');
+	let newChannelType = $state<'text' | 'voice' | 'threads'>('text');
 
 	// Load initial voice state when switching servers; listen for live updates via server room
 	$effect(() => {
@@ -276,6 +276,11 @@
 						class:active={newChannelType === 'voice'}
 						onclick={() => (newChannelType = 'voice')}
 					>🔊</button>
+					<button
+						class="type-btn"
+						class:active={newChannelType === 'threads'}
+						onclick={() => (newChannelType = 'threads')}
+					>💬</button>
 				</div>
 				<input
 					bind:value={newChannelName}
@@ -287,13 +292,14 @@
 		{/if}
 
 		{#each $channels.filter((c) => c.type !== 'voice') as ch}
+			{@const icon = ch.type === 'threads' ? '💬' : '#'}
 			<div class="channel-row">
 				<button
 					class="channel-item"
 					class:active={$activeChannel?.id === ch.id}
 					onclick={() => selectChannel(ch)}
 				>
-					<span># {ch.name}</span>
+					<span>{icon} {ch.name}</span>
 					{#if $mentionedChannels.has(ch.id)}
 						<span class="badge mention-badge">@</span>
 					{:else if ch.unread_count > 0}
