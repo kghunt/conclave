@@ -25,9 +25,14 @@ func (h *ThreadsHandler) List(w http.ResponseWriter, r *http.Request) {
 	channelID := chi.URLParam(r, "channelID")
 	userID := middleware.UserID(r)
 
-	var isMember bool
-	h.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM server_members WHERE server_id=$1 AND user_id=$2)`, serverID, userID).Scan(&isMember)
-	if !isMember {
+	var hasAccess bool
+	h.db.QueryRow(r.Context(), `
+		SELECT EXISTS(
+			SELECT 1 FROM server_members sm
+			JOIN channels c ON c.server_id = sm.server_id
+			WHERE sm.server_id = $1 AND sm.user_id = $2 AND c.id = $3
+		)`, serverID, userID, channelID).Scan(&hasAccess)
+	if !hasAccess {
 		writeErr(w, http.StatusForbidden, "not a member")
 		return
 	}
@@ -66,9 +71,14 @@ func (h *ThreadsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	channelID := chi.URLParam(r, "channelID")
 	userID := middleware.UserID(r)
 
-	var isMember bool
-	h.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM server_members WHERE server_id=$1 AND user_id=$2)`, serverID, userID).Scan(&isMember)
-	if !isMember {
+	var hasAccess bool
+	h.db.QueryRow(r.Context(), `
+		SELECT EXISTS(
+			SELECT 1 FROM server_members sm
+			JOIN channels c ON c.server_id = sm.server_id
+			WHERE sm.server_id = $1 AND sm.user_id = $2 AND c.id = $3
+		)`, serverID, userID, channelID).Scan(&hasAccess)
+	if !hasAccess {
 		writeErr(w, http.StatusForbidden, "not a member")
 		return
 	}
@@ -79,6 +89,14 @@ func (h *ThreadsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := decodeJSON(r, &body); err != nil || body.Title == "" {
 		writeErr(w, http.StatusBadRequest, "title required")
+		return
+	}
+	if len(body.Title) > 200 {
+		writeErr(w, http.StatusBadRequest, "title too long (max 200 characters)")
+		return
+	}
+	if len(body.InitialMessage) > 4000 {
+		writeErr(w, http.StatusBadRequest, "message too long (max 4000 characters)")
 		return
 	}
 
@@ -183,6 +201,10 @@ func (h *ThreadsHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := decodeJSON(r, &body); err != nil || body.Content == "" {
 		writeErr(w, http.StatusBadRequest, "content required")
+		return
+	}
+	if len(body.Content) > 4000 {
+		writeErr(w, http.StatusBadRequest, "message too long (max 4000 characters)")
 		return
 	}
 

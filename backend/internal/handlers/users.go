@@ -39,7 +39,7 @@ func (h *UsersHandler) Me(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UsersHandler) GetUser(w http.ResponseWriter, r *http.Request) {
-	u, err := h.fetchUser(r.Context(), chi.URLParam(r, "userID"))
+	u, err := h.fetchPublicUser(r.Context(), chi.URLParam(r, "userID"))
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "user not found")
 		return
@@ -55,6 +55,14 @@ func (h *UsersHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if len(body.DisplayName) > 32 {
+		writeErr(w, http.StatusBadRequest, "display name too long (max 32 characters)")
+		return
+	}
+	if len(body.Bio) > 500 {
+		writeErr(w, http.StatusBadRequest, "bio too long (max 500 characters)")
 		return
 	}
 
@@ -128,6 +136,18 @@ func (h *UsersHandler) fetchUser(ctx context.Context, id string) (*models.User, 
 		SELECT id, email, display_name, bio, avatar_url, created_at, updated_at
 		FROM users WHERE id = $1
 	`, id).Scan(&u.ID, &u.Email, &u.DisplayName, &u.Bio, &u.AvatarURL, &u.CreatedAt, &u.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+func (h *UsersHandler) fetchPublicUser(ctx context.Context, id string) (*models.User, error) {
+	var u models.User
+	err := h.db.QueryRow(ctx, `
+		SELECT id, display_name, bio, avatar_url, created_at
+		FROM users WHERE id = $1
+	`, id).Scan(&u.ID, &u.DisplayName, &u.Bio, &u.AvatarURL, &u.CreatedAt)
 	if err != nil {
 		return nil, err
 	}

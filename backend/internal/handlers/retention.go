@@ -32,8 +32,8 @@ func runRetention(ctx context.Context, db *pgxpool.Pool) {
 
 	if msgDays > 0 {
 		tag, err := db.Exec(ctx, `
-			DELETE FROM messages WHERE created_at < NOW() - ($1 || ' days')::INTERVAL
-		`, strconv.Itoa(msgDays))
+			DELETE FROM messages WHERE created_at < NOW() - ($1::int * INTERVAL '1 day')
+		`, msgDays)
 		if err != nil {
 			log.Printf("retention: delete messages: %v", err)
 		} else {
@@ -41,8 +41,8 @@ func runRetention(ctx context.Context, db *pgxpool.Pool) {
 		}
 
 		tag, err = db.Exec(ctx, `
-			DELETE FROM direct_messages WHERE created_at < NOW() - ($1 || ' days')::INTERVAL
-		`, strconv.Itoa(msgDays))
+			DELETE FROM direct_messages WHERE created_at < NOW() - ($1::int * INTERVAL '1 day')
+		`, msgDays)
 		if err != nil {
 			log.Printf("retention: delete direct_messages: %v", err)
 		} else {
@@ -55,14 +55,14 @@ func runRetention(ctx context.Context, db *pgxpool.Pool) {
 		// (and the space itself is at least that old, so new empty spaces aren't purged)
 		tag, err := db.Exec(ctx, `
 			DELETE FROM servers
-			WHERE created_at < NOW() - ($1 || ' days')::INTERVAL
+			WHERE created_at < NOW() - ($1::int * INTERVAL '1 day')
 			AND id NOT IN (
 				SELECT DISTINCT c.server_id
 				FROM channels c
 				JOIN messages m ON m.channel_id = c.id
-				WHERE m.created_at > NOW() - ($1 || ' days')::INTERVAL
+				WHERE m.created_at > NOW() - ($1::int * INTERVAL '1 day')
 			)
-		`, strconv.Itoa(spaceDays))
+		`, spaceDays)
 		if err != nil {
 			log.Printf("retention: delete inactive spaces: %v", err)
 		} else {
