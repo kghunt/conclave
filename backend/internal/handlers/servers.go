@@ -20,12 +20,13 @@ import (
 )
 
 type ServersHandler struct {
-	db  *pgxpool.Pool
-	hub *ws.Hub
+	db                 *pgxpool.Pool
+	hub                *ws.Hub
+	instanceAdminEmail string
 }
 
-func NewServers(db *pgxpool.Pool, hub *ws.Hub) *ServersHandler {
-	return &ServersHandler{db: db, hub: hub}
+func NewServers(db *pgxpool.Pool, hub *ws.Hub, instanceAdminEmail string) *ServersHandler {
+	return &ServersHandler{db: db, hub: hub, instanceAdminEmail: instanceAdminEmail}
 }
 
 func (h *ServersHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -65,6 +66,18 @@ func (h *ServersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if err := decodeJSON(r, &body); err != nil || body.Name == "" {
 		writeErr(w, http.StatusBadRequest, "name required")
 		return
+	}
+
+	// Check if space creation is restricted to instance admin only
+	var settingVal string
+	h.db.QueryRow(r.Context(), `SELECT value FROM settings WHERE key = 'allow_user_space_creation'`).Scan(&settingVal)
+	if settingVal == "false" {
+		var email string
+		h.db.QueryRow(r.Context(), `SELECT email FROM users WHERE id = $1`, userID).Scan(&email)
+		if h.instanceAdminEmail == "" || email != h.instanceAdminEmail {
+			writeErr(w, http.StatusForbidden, "space creation is disabled by the administrator")
+			return
+		}
 	}
 
 	inviteCode := randomCode(8)
@@ -430,6 +443,48 @@ func (h *ServersHandler) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, invite)
+}
+
+type serverDiscovery struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	IconURL     string `json:"icon_url"`
+	MemberCount int    `json:"member_count"`
+	IsMember    bool   `json:"is_member"`
+}
+
+func (h *ServersHandler) Discover(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.UserID(r)
+	q := r.URL.Query().Get("q")
+
+	rows, err := h.db.Query(r.Context(), `
+		SELECT s.id, s.name, s.description, s.icon_url,
+		       COUNT(sm.user_id) AS member_count,
+		       EXISTS(SELECT 1 FROM server_members WHERE server_id = s.id AND user_id = $1) AS is_member
+		FROM servers s
+		LEFT JOIN server_members sm ON sm.server_id = s.id
+		WHERE s.is_public = true
+		  AND ($2 = '' OR s.name ILIKE '%' || $2 || '%' OR s.description ILIKE '%' || $2 || '%')
+		GROUP BY s.id
+		ORDER BY COUNT(sm.user_id) DESC, s.created_at DESC
+		LIMIT 50
+	`, userID, q)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	defer rows.Close()
+
+	results := make([]serverDiscovery, 0)
+	for rows.Next() {
+		var d serverDiscovery
+		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &d.IconURL, &d.MemberCount, &d.IsMember); err != nil {
+			continue
+		}
+		results = append(results, d)
+	}
+	writeJSON(w, http.StatusOK, results)
 }
 
 func randomCode(n int) string {

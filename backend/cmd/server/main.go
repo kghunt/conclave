@@ -46,7 +46,7 @@ func main() {
 	authH := handlers.NewAuth(authSvc, pool, cfg.BaseURL, cfg.FrontendURL)
 	usersH := handlers.NewUsers(pool, cfg.AvatarDir, cfg.BaseURL, cfg.InstanceAdminEmail)
 	adminH := handlers.NewAdmin(pool, cfg.InstanceAdminEmail)
-	serversH := handlers.NewServers(pool, hub)
+	serversH := handlers.NewServers(pool, hub, cfg.InstanceAdminEmail)
 	channelsH := handlers.NewChannels(pool)
 	pushH := handlers.NewPush(pool, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDEmail)
 	friendsH := handlers.NewFriends(pool, hub)
@@ -64,8 +64,9 @@ func main() {
 		AllowCredentials: true,
 	}))
 
-	// auth
+	// public (no auth)
 	r.Get("/api/theme", adminH.GetTheme)
+	r.Get("/api/config", adminH.GetConfig)
 	r.Get("/api/auth/login", authH.Login)
 	r.Get("/api/auth/callback", authH.Callback)
 	r.Post("/api/auth/logout", authH.Logout)
@@ -87,6 +88,7 @@ func main() {
 
 		// servers
 		r.Get("/api/servers", serversH.List)
+		r.Get("/api/servers/discover", serversH.Discover)
 		r.Post("/api/servers", serversH.Create)
 		r.Get("/api/servers/{serverID}", serversH.Get)
 		r.Patch("/api/servers/{serverID}", serversH.Update)

@@ -75,6 +75,9 @@ func (h *AdminHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		"theme_panel": true, "theme_input": true, "theme_border": true,
 		"theme_text": true, "theme_text_muted": true,
 	}
+	boolKeys := map[string]bool{
+		"allow_user_space_creation": true,
+	}
 
 	for k, v := range body {
 		switch {
@@ -87,6 +90,11 @@ func (h *AdminHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		case themeKeys[k]:
 			if v != "" && !hexColorRe.MatchString(v) {
 				writeErr(w, http.StatusBadRequest, k+" must be a hex colour like #rrggbb")
+				return
+			}
+		case boolKeys[k]:
+			if v != "true" && v != "false" && v != "" {
+				writeErr(w, http.StatusBadRequest, k+" must be true or false")
 				return
 			}
 		default:
@@ -131,4 +139,12 @@ func (h *AdminHandler) GetTheme(w http.ResponseWriter, r *http.Request) {
 
 func (h *AdminHandler) IsInstanceAdmin(email string) bool {
 	return h.instanceAdminEmail != "" && subtle.ConstantTimeCompare([]byte(email), []byte(h.instanceAdminEmail)) == 1
+}
+
+// GetConfig returns public instance-wide config flags (no auth required).
+func (h *AdminHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
+	var val string
+	h.db.QueryRow(r.Context(), `SELECT value FROM settings WHERE key = 'allow_user_space_creation'`).Scan(&val)
+	allowCreate := val != "false"
+	writeJSON(w, http.StatusOK, map[string]bool{"allow_user_space_creation": allowCreate})
 }

@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { api, type Server } from '$lib/api';
-	import { servers, activeServer, channels, activeChannel } from '$lib/stores';
+	import { servers, activeServer, channels, activeChannel, instanceConfig } from '$lib/stores';
 	import ServerContextMenu from './ServerContextMenu.svelte';
+	import SpaceBrowser from './SpaceBrowser.svelte';
 
 	let showCreate = $state(false);
+	let showBrowse = $state(false);
 	let newName = $state('');
 	let newDesc = $state('');
 	let isPublic = $state(false);
@@ -89,8 +91,13 @@
 
 	<div class="divider"></div>
 
-	<button class="server-icon add" title="Create or join a space" onclick={() => (showCreate = !showCreate)}>
-		+
+	{#if $instanceConfig.allow_user_space_creation}
+		<button class="server-icon add" title="Create or join a space" onclick={() => { showCreate = !showCreate; showBrowse = false; }}>
+			+
+		</button>
+	{/if}
+	<button class="server-icon browse" title="Browse public spaces" onclick={() => { showBrowse = true; showCreate = false; }}>
+		⊕
 	</button>
 </nav>
 
@@ -101,6 +108,10 @@
 		y={menuY}
 		onclose={() => (contextServer = null)}
 	/>
+{/if}
+
+{#if showBrowse}
+	<SpaceBrowser onclose={() => (showBrowse = false)} />
 {/if}
 
 {#if showCreate}
@@ -159,6 +170,7 @@
 		border-color: var(--accent);
 	}
 	.server-icon.add { background: #1a2d1a; color: #44c97d; font-size: 1.5rem; }
+	.server-icon.browse { background: var(--bg-panel); color: var(--accent); font-size: 1.4rem; }
 	.divider {
 		width: 32px;
 		height: 2px;

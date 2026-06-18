@@ -107,6 +107,23 @@
 		{/if}
 
 		<section>
+			<h3>General</h3>
+			<div class="setting">
+				<label class="toggle-label">
+					<span>Allow users to create spaces</span>
+					<input
+						type="checkbox"
+						checked={settings.allow_user_space_creation !== 'false'}
+						onchange={(e) => {
+							settings = { ...settings, allow_user_space_creation: (e.target as HTMLInputElement).checked ? 'true' : 'false' };
+						}}
+					/>
+				</label>
+				<p class="hint">When disabled, only the instance admin can create new spaces.</p>
+			</div>
+		</section>
+
+		<section>
 			<h3>Data Retention</h3>
 			<p class="hint">Set to 0 to keep data forever. Cleanup runs daily at startup.</p>
 
@@ -257,6 +274,14 @@
 		color: var(--text);
 		margin-bottom: 0.375rem;
 	}
+	.toggle-label {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		cursor: pointer;
+		margin-bottom: 0;
+	}
+	.toggle-label input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent); }
 	.current { color: var(--text-muted); font-weight: 400; font-size: 0.8rem; }
 	.setting-row {
 		display: flex;

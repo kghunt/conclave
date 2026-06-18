@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api, type Message, type DirectMessage } from '$lib/api';
 	import { socket } from '$lib/socket';
-	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent } from '$lib/stores';
+	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent, instanceConfig } from '$lib/stores';
 	import ServerList from '$lib/components/ServerList.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
 	import MessageFeed from '$lib/components/MessageFeed.svelte';
@@ -23,18 +23,20 @@
 		mq.addEventListener('change', handler);
 
 		(async () => {
-			const [s, convs, fr, reqs, sent] = await Promise.all([
+			const [s, convs, fr, reqs, sent, cfg] = await Promise.all([
 				api.listServers(),
 				api.listConversations(),
 				api.listFriends(),
 				api.listFriendRequests(),
-				api.listFriendRequestsSent()
+				api.listFriendRequestsSent(),
+				api.getConfig().catch(() => ({ allow_user_space_creation: true }))
 			]);
 			servers.set(s ?? []);
 			dmConversations.set(convs ?? []);
 			friends.set(fr ?? []);
 			friendRequests.set(reqs ?? []);
 			friendRequestsSent.set(sent ?? []);
+			instanceConfig.set(cfg);
 
 			// Restore last active server
 			const lastServerId = localStorage.getItem('lastServerId');
