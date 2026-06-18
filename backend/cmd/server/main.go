@@ -155,7 +155,7 @@ func main() {
 		r.Delete("/api/dms/conversations/{convID}/messages/{messageID}", dmsH.DeleteMessage)
 
 		// file upload
-		r.Post("/api/upload", handlers.UploadFile(cfg.AvatarDir, cfg.BaseURL))
+		r.Post("/api/upload", handlers.UploadFile(cfg.AvatarDir, cfg.BaseURL, pool))
 
 		// friends
 		r.Get("/api/friends", friendsH.List)
