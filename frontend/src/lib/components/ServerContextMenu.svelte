@@ -223,7 +223,7 @@
 		position: fixed;
 		z-index: 200;
 		background: #222228;
-		border: 1px solid #2e2e38;
+		border: 1px solid var(--border);
 		border-radius: 6px;
 		padding: 0.375rem;
 		min-width: 200px;
@@ -234,9 +234,9 @@
 		font-size: 0.75rem;
 		font-weight: 700;
 		text-transform: uppercase;
-		color: #8b8b99;
+		color: var(--text-muted);
 		letter-spacing: 0.05em;
-		border-bottom: 1px solid #2e2e38;
+		border-bottom: 1px solid var(--border);
 		margin-bottom: 0.25rem;
 	}
 	.menu button {
@@ -244,7 +244,7 @@
 		width: 100%;
 		background: none;
 		border: none;
-		color: #f0eff4;
+		color: var(--text);
 		padding: 0.5rem 0.625rem;
 		text-align: left;
 		cursor: pointer;
@@ -256,7 +256,7 @@
 	.menu button.danger:hover { background: rgba(224,69,69,0.1); }
 	.separator {
 		height: 1px;
-		background: #2e2e38;
+		background: var(--border);
 		margin: 0.25rem 0;
 	}
 
@@ -270,13 +270,13 @@
 		flex: 1;
 		font-family: monospace;
 		font-size: 0.85rem;
-		color: #e8541e;
+		color: var(--accent);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 	.copy-btn {
-		background: #e8541e !important;
+		background: var(--accent) !important;
 		color: white !important;
 		padding: 0.2rem 0.5rem !important;
 		font-size: 0.75rem !important;
@@ -285,22 +285,22 @@
 	.invite-meta {
 		padding: 0 0.625rem 0.375rem;
 		font-size: 0.7rem;
-		color: #8b8b99;
+		color: var(--text-muted);
 	}
 	.section-divider {
 		padding: 0.625rem 0.625rem 0.25rem;
 		font-size: 0.7rem;
 		font-weight: 700;
 		text-transform: uppercase;
-		color: #8b8b99;
+		color: var(--text-muted);
 		letter-spacing: 0.05em;
-		border-top: 1px solid #2e2e38;
+		border-top: 1px solid var(--border);
 		margin-top: 0.25rem;
 	}
 	label select {
-		background: #26262b;
-		border: 1px solid #2e2e38;
-		color: #f0eff4;
+		background: var(--bg-input);
+		border: 1px solid var(--border);
+		color: var(--text);
 		padding: 0.4rem 0.5rem;
 		border-radius: 4px;
 		font-size: 0.875rem;
@@ -319,13 +319,13 @@
 		font-size: 0.75rem;
 		font-weight: 700;
 		text-transform: uppercase;
-		color: #8b8b99;
+		color: var(--text-muted);
 		letter-spacing: 0.05em;
 	}
 	label input:not([type="checkbox"]), label textarea {
-		background: #26262b;
-		border: 1px solid #2e2e38;
-		color: #f0eff4;
+		background: var(--bg-input);
+		border: 1px solid var(--border);
+		color: var(--text);
 		padding: 0.4rem 0.5rem;
 		border-radius: 4px;
 		font-size: 0.875rem;
@@ -345,7 +345,7 @@
 		color: #aaa;
 		line-height: 1.5;
 	}
-	.delete-warning strong { color: #f0eff4; }
+	.delete-warning strong { color: var(--text); }
 	.edit-actions {
 		display: flex;
 		justify-content: flex-end;
@@ -355,13 +355,13 @@
 	.cancel {
 		background: none !important;
 		border: none;
-		color: #8b8b99 !important;
+		color: var(--text-muted) !important;
 		cursor: pointer;
 		padding: 0.4rem 0.75rem !important;
 		border-radius: 4px;
 	}
 	.save {
-		background: #e8541e !important;
+		background: var(--accent) !important;
 		border: none;
 		color: white !important;
 		padding: 0.4rem 0.875rem !important;

@@ -174,7 +174,7 @@
 	}
 	.member-list {
 		width: 240px;
-		background: #19191d;
+		background: var(--bg-sidebar);
 		flex-shrink: 0;
 		overflow-y: auto;
 		padding: 0;
@@ -191,7 +191,7 @@
 		font-size: 0.7rem;
 		font-weight: 700;
 		text-transform: uppercase;
-		color: #8b8b99;
+		color: var(--text-muted);
 		letter-spacing: 0.05em;
 		padding: 0.875rem 0.75rem 0.3rem;
 	}
@@ -214,7 +214,7 @@
 	}
 	.member-name {
 		font-size: 0.875rem;
-		color: #f0eff4;
+		color: var(--text);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -224,8 +224,8 @@
 		font-weight: 600;
 	}
 	.role-owner { color: #f0a020; }
-	.role-admin { color: #e8541e; }
-	.role-member { color: #8b8b99; }
+	.role-admin { color: var(--accent); }
+	.role-member { color: var(--text-muted); }
 
 	.member-actions {
 		display: flex;
@@ -238,7 +238,7 @@
 	.action-btn {
 		background: none;
 		border: none;
-		color: #8b8b99;
+		color: var(--text-muted);
 		cursor: pointer;
 		padding: 0.2rem 0.3rem;
 		border-radius: 3px;
@@ -247,7 +247,7 @@
 		align-items: center;
 		justify-content: center;
 	}
-	.action-btn:hover { background: rgba(255,255,255,0.1); color: #f0eff4; }
+	.action-btn:hover { background: rgba(255,255,255,0.1); color: var(--text); }
 	@media (max-width: 767px) {
 		.member-actions { opacity: 1; }
 		.action-btn { padding: 0.35rem; }
@@ -258,7 +258,7 @@
 		right: 0.5rem;
 		top: 100%;
 		background: #222228;
-		border: 1px solid #2e2e38;
+		border: 1px solid var(--border);
 		border-radius: 6px;
 		padding: 0.3rem;
 		z-index: 50;
@@ -270,7 +270,7 @@
 		width: 100%;
 		background: none;
 		border: none;
-		color: #f0eff4;
+		color: var(--text);
 		padding: 0.5rem 0.625rem;
 		text-align: left;
 		cursor: pointer;

@@ -65,6 +65,7 @@ func main() {
 	}))
 
 	// auth
+	r.Get("/api/theme", adminH.GetTheme)
 	r.Get("/api/auth/login", authH.Login)
 	r.Get("/api/auth/callback", authH.Callback)
 	r.Post("/api/auth/logout", authH.Logout)

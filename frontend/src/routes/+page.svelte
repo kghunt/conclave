@@ -288,7 +288,7 @@
 
 <style>
 	:global(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
-	:global(body) { background: #111113; color: #f0eff4; font-family: system-ui, sans-serif; overflow: hidden; }
+	:global(body) { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; overflow: hidden; }
 
 	.app {
 		display: flex;
@@ -309,7 +309,7 @@
 		padding: 0 1rem;
 		height: 48px;
 		border-bottom: 1px solid #0e0e10;
-		background: #1c1c21;
+		background: var(--bg-panel);
 		flex-shrink: 0;
 	}
 	.back-btn {
@@ -318,7 +318,7 @@
 		gap: 0.25rem;
 		background: none;
 		border: none;
-		color: #e8541e;
+		color: var(--accent);
 		cursor: pointer;
 		font-size: 0.875rem;
 		font-weight: 600;
@@ -331,7 +331,7 @@
 	.channel-name {
 		flex: 1;
 		font-weight: 600;
-		color: #f0eff4;
+		color: var(--text);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -348,8 +348,8 @@
 		align-items: center;
 		justify-content: center;
 	}
-	.icon-btn:hover { color: #f0eff4; background: rgba(255,255,255,0.1); }
-	.icon-btn.active { color: #e8541e; }
+	.icon-btn:hover { color: var(--text); background: rgba(255,255,255,0.1); }
+	.icon-btn.active { color: var(--accent); }
 	.input-area {
 		padding: 0.75rem 1rem;
 		flex-shrink: 0;
@@ -364,7 +364,7 @@
 		position: relative;
 	}
 	.action-icon {
-		background: #2e2e38;
+		background: var(--border);
 		border: 1px solid #3a3a45;
 		color: #c8c7d0;
 		width: 36px;
@@ -376,15 +376,15 @@
 		justify-content: center;
 		transition: background 0.15s, color 0.15s;
 	}
-	.action-icon:hover:not(:disabled) { background: #3a3a45; color: #f0eff4; }
-	.action-icon.active { background: #e8541e; border-color: #e8541e; color: white; }
+	.action-icon:hover:not(:disabled) { background: #3a3a45; color: var(--text); }
+	.action-icon.active { background: var(--accent); border-color: var(--accent); color: white; }
 	.action-icon:disabled { opacity: 0.35; cursor: not-allowed; }
 	textarea {
 		width: 100%;
-		background: #26262b;
-		border: 1px solid #2e2e38;
+		background: var(--bg-input);
+		border: 1px solid var(--border);
 		border-radius: 8px;
-		color: #f0eff4;
+		color: var(--text);
 		padding: 0.75rem 1rem;
 		font-size: 0.95rem;
 		resize: none;
@@ -405,7 +405,7 @@
 			position: fixed;
 			inset: 0;
 			z-index: 50;
-			background: #19191d;
+			background: var(--bg-sidebar);
 		}
 		.members-overlay-header {
 			display: flex;
@@ -420,7 +420,7 @@
 		.members-overlay-header button {
 			background: none;
 			border: none;
-			color: #8b8b99;
+			color: var(--text-muted);
 			cursor: pointer;
 			font-size: 1rem;
 			padding: 0.25rem;
