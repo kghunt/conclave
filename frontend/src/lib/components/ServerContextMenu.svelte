@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { api, type Server, type Invite } from '$lib/api';
 	import { servers, activeServer, channels, activeChannel, currentUser } from '$lib/stores';
+	import RoleManager from './RoleManager.svelte';
 
 	let {
 		server,
@@ -31,6 +32,7 @@
 	let iconInput: HTMLInputElement;
 
 	// Delete state
+	let showRoleManager = $state(false);
 	let showDeleteConfirm = $state(false);
 	let deleteConfirmName = $state('');
 	let deleting = $state(false);
@@ -117,6 +119,10 @@
 <!-- click-outside overlay -->
 <div class="overlay" onclick={onclose}></div>
 
+{#if showRoleManager}
+	<RoleManager serverId={server.id} onclose={() => { showRoleManager = false; onclose(); }} />
+{/if}
+
 {#if showDeleteConfirm}
 	<div class="menu edit-menu" style="left:{x}px; top:{y}px">
 		<div class="menu-header">Delete Space</div>
@@ -196,6 +202,7 @@
 
 		{#if isAdmin}
 			<button onclick={() => (showEdit = true)}>Edit Space</button>
+			<button onclick={() => (showRoleManager = true)}>Manage Roles</button>
 			<button onclick={() => iconInput.click()}>Upload Icon</button>
 			<input bind:this={iconInput} type="file" accept="image/*" onchange={uploadIcon} style="display:none" />
 		{/if}
