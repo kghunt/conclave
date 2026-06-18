@@ -49,6 +49,7 @@ func main() {
 	serversH := handlers.NewServers(pool)
 	channelsH := handlers.NewChannels(pool)
 	pushH := handlers.NewPush(pool, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDEmail)
+	friendsH := handlers.NewFriends(pool)
 	messagesH := handlers.NewMessages(pool, hub, pushH)
 	dmsH := handlers.NewDMs(pool, hub, pushH)
 	wsH := handlers.NewWS(hub, authSvc, pool, cfg.BaseURL, cfg.FrontendURL)
@@ -120,6 +121,14 @@ func main() {
 
 		// file upload
 		r.Post("/api/upload", handlers.UploadFile(cfg.AvatarDir, cfg.BaseURL))
+
+		// friends
+		r.Get("/api/friends", friendsH.List)
+		r.Get("/api/friends/requests", friendsH.Requests)
+		r.Post("/api/friends/request/{userID}", friendsH.SendRequest)
+		r.Post("/api/friends/accept/{userID}", friendsH.Accept)
+		r.Delete("/api/friends/{userID}", friendsH.Remove)
+		r.Get("/api/users/search", friendsH.SearchUsers)
 
 		// push notifications
 		r.Get("/api/push/key", pushH.GetPublicKey)

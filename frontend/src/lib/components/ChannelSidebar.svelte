@@ -1,12 +1,69 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { api } from '$lib/api';
-	import { activeServer, servers, channels, activeChannel, dmConversations, activeDM, currentUser, showProfileModal } from '$lib/stores';
+	import { api, type User } from '$lib/api';
+	import { activeServer, servers, channels, activeChannel, dmConversations, activeDM, currentUser, showProfileModal, friends, friendRequests } from '$lib/stores';
 	import type { Channel } from '$lib/api';
 	import Avatar from './Avatar.svelte';
 	import AdminPanel from './AdminPanel.svelte';
 
 	let showAdmin = $state(false);
+
+	// Friends
+	let showAddFriend = $state(false);
+	let friendSearch = $state('');
+	let searchResults = $state<User[]>([]);
+	let searchDebounce: ReturnType<typeof setTimeout>;
+	let pendingRequests = $state<Record<string, 'sending' | 'sent' | 'error'>>({});
+
+	$effect(() => {
+		const q = friendSearch;
+		clearTimeout(searchDebounce);
+		if (q.length < 2) { searchResults = []; return; }
+		searchDebounce = setTimeout(async () => {
+			searchResults = await api.searchUsers(q).catch(() => []);
+		}, 300);
+	});
+
+	async function sendRequest(userId: string) {
+		pendingRequests = { ...pendingRequests, [userId]: 'sending' };
+		try {
+			await api.sendFriendRequest(userId);
+			pendingRequests = { ...pendingRequests, [userId]: 'sent' };
+			// If auto-accepted (they had sent us one), refresh both lists
+			const [fr, reqs] = await Promise.all([api.listFriends(), api.listFriendRequests()]);
+			friends.set(fr ?? []);
+			friendRequests.set(reqs ?? []);
+		} catch {
+			pendingRequests = { ...pendingRequests, [userId]: 'error' };
+		}
+	}
+
+	async function acceptRequest(userId: string) {
+		await api.acceptFriendRequest(userId);
+		friendRequests.update((rs) => rs.filter((r) => r.user.id !== userId));
+		const fr = await api.listFriends();
+		friends.set(fr ?? []);
+	}
+
+	async function declineRequest(userId: string) {
+		await api.removeFriend(userId);
+		friendRequests.update((rs) => rs.filter((r) => r.user.id !== userId));
+	}
+
+	async function removeFriend(userId: string) {
+		await api.removeFriend(userId);
+		friends.update((fs) => fs.filter((f) => f.user.id !== userId));
+	}
+
+	async function messageFriend(userId: string) {
+		const conv = await api.getOrCreateDM(userId);
+		dmConversations.update((prev) => {
+			if (prev.find((c) => c.id === conv.id)) return prev;
+			return [conv, ...prev];
+		});
+		activeChannel.set(null);
+		activeDM.set(conv);
+	}
 
 	// Push notification state
 	let pushSupported = $state(false);
@@ -152,6 +209,65 @@
 		</button>
 	{/each}
 
+	<div class="section-label">
+		<span>
+			Friends
+			{#if $friendRequests.length > 0}
+				<span class="req-badge">{$friendRequests.length}</span>
+			{/if}
+		</span>
+		<button class="add-btn" onclick={() => { showAddFriend = !showAddFriend; friendSearch = ''; searchResults = []; }} title="Add friend">+</button>
+	</div>
+
+	{#if showAddFriend}
+		<div class="friend-search">
+			<input
+				bind:value={friendSearch}
+				placeholder="Search by name…"
+				autofocus
+			/>
+			{#if searchResults.length > 0}
+				<div class="search-results">
+					{#each searchResults as u}
+						{@const reqState = pendingRequests[u.id]}
+						<div class="search-result">
+							<Avatar url={u.avatar_url} name={u.display_name} userId={u.id} size={24} />
+							<span class="result-name">{u.display_name}</span>
+							{#if reqState === 'sent'}
+								<span class="req-sent">✓</span>
+							{:else}
+								<button class="req-btn" onclick={() => sendRequest(u.id)} disabled={reqState === 'sending'}>
+									{reqState === 'sending' ? '…' : '+'}
+								</button>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			{:else if friendSearch.length >= 2}
+				<p class="no-results">No users found</p>
+			{/if}
+		</div>
+	{/if}
+
+	{#each $friendRequests as req}
+		<div class="friend-request">
+			<Avatar url={req.user.avatar_url} name={req.user.display_name} userId={req.user.id} size={28} />
+			<span class="friend-name">{req.user.display_name}</span>
+			<button class="accept-btn" onclick={() => acceptRequest(req.user.id)} title="Accept">✓</button>
+			<button class="decline-btn" onclick={() => declineRequest(req.user.id)} title="Decline">✕</button>
+		</div>
+	{/each}
+
+	{#each $friends as f}
+		<div class="friend-item">
+			<Avatar url={f.user.avatar_url} name={f.user.display_name} userId={f.user.id} size={28} />
+			<span class="friend-name">{f.user.display_name}</span>
+			<button class="msg-btn" onclick={() => messageFriend(f.user.id)} title="Message">
+				<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+			</button>
+		</div>
+	{/each}
+
 	<div class="user-bar">
 		{#if $currentUser}
 			<button class="user-info" onclick={() => showProfileModal.set(true)} title="Edit profile">
@@ -281,6 +397,121 @@
 		border-radius: 8px;
 		padding: 0.1rem 0.4rem;
 	}
+	.req-badge {
+		background: #e04545;
+		color: white;
+		font-size: 0.65rem;
+		font-weight: 700;
+		border-radius: 8px;
+		padding: 0.1rem 0.35rem;
+		margin-left: 0.25rem;
+		vertical-align: middle;
+	}
+	.friend-search {
+		padding: 0.25rem 0.75rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+	.friend-search input {
+		background: #26262b;
+		border: 1px solid #2e2e38;
+		color: #f0eff4;
+		padding: 0.35rem 0.5rem;
+		border-radius: 4px;
+		font-size: 0.85rem;
+		width: 100%;
+		outline: none;
+	}
+	.search-results {
+		background: #1c1c21;
+		border: 1px solid #2e2e38;
+		border-radius: 4px;
+		overflow: hidden;
+	}
+	.search-result {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.375rem 0.5rem;
+	}
+	.search-result:hover { background: rgba(255,255,255,0.05); }
+	.result-name { flex: 1; font-size: 0.85rem; color: #f0eff4; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.req-btn {
+		background: #e8541e;
+		border: none;
+		color: white;
+		width: 22px;
+		height: 22px;
+		border-radius: 50%;
+		cursor: pointer;
+		font-size: 0.85rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+	}
+	.req-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+	.req-sent { color: #44c97d; font-size: 0.85rem; flex-shrink: 0; }
+	.no-results { font-size: 0.8rem; color: #8b8b99; padding: 0.25rem 0.5rem; }
+	.friend-request {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.3rem 0.75rem;
+		background: rgba(232,84,30,0.06);
+		margin: 0 0.25rem;
+		border-radius: 4px;
+	}
+	.friend-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.3rem 0.75rem;
+		margin: 0 0.25rem;
+		border-radius: 4px;
+	}
+	.friend-item:hover { background: rgba(255,255,255,0.05); }
+	.friend-name { flex: 1; font-size: 0.875rem; color: #f0eff4; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.accept-btn {
+		background: none;
+		border: none;
+		color: #44c97d;
+		cursor: pointer;
+		font-size: 0.9rem;
+		padding: 0.15rem 0.3rem;
+		border-radius: 3px;
+		flex-shrink: 0;
+	}
+	.accept-btn:hover { background: rgba(68,201,125,0.15); }
+	.decline-btn {
+		background: none;
+		border: none;
+		color: #8b8b99;
+		cursor: pointer;
+		font-size: 0.8rem;
+		padding: 0.15rem 0.3rem;
+		border-radius: 3px;
+		flex-shrink: 0;
+	}
+	.decline-btn:hover { color: #e04545; background: rgba(224,69,69,0.1); }
+	.msg-btn {
+		background: none;
+		border: none;
+		color: #8b8b99;
+		cursor: pointer;
+		padding: 0.2rem 0.3rem;
+		border-radius: 3px;
+		display: flex;
+		align-items: center;
+		opacity: 0;
+		transition: opacity 0.1s;
+		flex-shrink: 0;
+	}
+	.friend-item:hover .msg-btn { opacity: 1; }
+	.msg-btn:hover { color: #f0eff4; background: rgba(255,255,255,0.1); }
+	@media (max-width: 767px) { .msg-btn { opacity: 1; } }
+
 	.user-bar {
 		display: flex;
 		align-items: center;
