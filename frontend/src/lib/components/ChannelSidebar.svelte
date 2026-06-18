@@ -1,12 +1,30 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api, type User } from '$lib/api';
-	import { activeServer, servers, channels, activeChannel, dmConversations, activeDM, currentUser, showProfileModal, friends, friendRequests } from '$lib/stores';
+	import { activeServer, servers, channels, activeChannel, dmConversations, activeDM, currentUser, showProfileModal, friends, friendRequests, friendRequestsSent } from '$lib/stores';
+	import { socket } from '$lib/socket';
 	import type { Channel } from '$lib/api';
 	import Avatar from './Avatar.svelte';
 	import AdminPanel from './AdminPanel.svelte';
 
 	let showAdmin = $state(false);
+
+	// Subscribe to personal user room for real-time friend acceptance
+	$effect(() => {
+		const uid = $currentUser?.id;
+		if (!uid) return;
+		const room = 'user:' + uid;
+		socket.subscribe(room);
+		const unsub = socket.on(async (event) => {
+			if (event.type === 'friend.accepted') {
+				// Move from sent → accepted: refresh both lists
+				const [fr, sent] = await Promise.all([api.listFriends(), api.listFriendRequestsSent()]);
+				friends.set(fr ?? []);
+				friendRequestsSent.set(sent ?? []);
+			}
+		});
+		return () => { unsub(); socket.unsubscribe(room); };
+	});
 
 	// Friends
 	let showAddFriend = $state(false);
@@ -27,14 +45,23 @@
 	async function sendRequest(userId: string) {
 		pendingRequests = { ...pendingRequests, [userId]: 'sending' };
 		try {
-			await api.sendFriendRequest(userId);
+			const result = await api.sendFriendRequest(userId);
 			pendingRequests = { ...pendingRequests, [userId]: 'sent' };
-			// If auto-accepted (they had sent us one), refresh both lists
-			const [fr, reqs] = await Promise.all([api.listFriends(), api.listFriendRequests()]);
-			friends.set(fr ?? []);
-			friendRequests.set(reqs ?? []);
-		} catch {
-			pendingRequests = { ...pendingRequests, [userId]: 'error' };
+			if (result.status === 'accepted') {
+				const [fr, reqs] = await Promise.all([api.listFriends(), api.listFriendRequests()]);
+				friends.set(fr ?? []);
+				friendRequests.set(reqs ?? []);
+			} else {
+				// Request pending — add to sent list so it appears in the sidebar
+				const user = searchResults.find((u) => u.id === userId);
+				if (user) friendRequestsSent.update((s) => [{ user, since: new Date().toISOString() }, ...s]);
+			}
+		} catch (e: any) {
+			if (e?.message?.includes('already sent') || e?.message?.includes('already friends')) {
+				pendingRequests = { ...pendingRequests, [userId]: 'sent' };
+			} else {
+				pendingRequests = { ...pendingRequests, [userId]: 'error' };
+			}
 		}
 	}
 
@@ -48,6 +75,11 @@
 	async function declineRequest(userId: string) {
 		await api.removeFriend(userId);
 		friendRequests.update((rs) => rs.filter((r) => r.user.id !== userId));
+	}
+
+	async function cancelRequest(userId: string) {
+		await api.removeFriend(userId);
+		friendRequestsSent.update((s) => s.filter((r) => r.user.id !== userId));
 	}
 
 	async function removeFriend(userId: string) {
@@ -255,6 +287,15 @@
 			<span class="friend-name">{req.user.display_name}</span>
 			<button class="accept-btn" onclick={() => acceptRequest(req.user.id)} title="Accept">✓</button>
 			<button class="decline-btn" onclick={() => declineRequest(req.user.id)} title="Decline">✕</button>
+		</div>
+	{/each}
+
+	{#each $friendRequestsSent as req}
+		<div class="friend-item">
+			<Avatar url={req.user.avatar_url} name={req.user.display_name} userId={req.user.id} size={28} />
+			<span class="friend-name">{req.user.display_name}</span>
+			<span class="pending-badge">Pending</span>
+			<button class="decline-btn" onclick={() => cancelRequest(req.user.id)} title="Cancel request">✕</button>
 		</div>
 	{/each}
 
@@ -473,6 +514,15 @@
 	}
 	.friend-item:hover { background: rgba(255,255,255,0.05); }
 	.friend-name { flex: 1; font-size: 0.875rem; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.pending-badge {
+		font-size: 0.65rem;
+		font-weight: 600;
+		color: var(--text-muted);
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		padding: 0.1rem 0.35rem;
+		flex-shrink: 0;
+	}
 	.accept-btn {
 		background: none;
 		border: none;

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -8,14 +9,16 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/karl/conclave/internal/middleware"
 	"github.com/karl/conclave/internal/models"
+	"github.com/karl/conclave/internal/ws"
 )
 
 type FriendsHandler struct {
-	db *pgxpool.Pool
+	db  *pgxpool.Pool
+	hub *ws.Hub
 }
 
-func NewFriends(db *pgxpool.Pool) *FriendsHandler {
-	return &FriendsHandler{db: db}
+func NewFriends(db *pgxpool.Pool, hub *ws.Hub) *FriendsHandler {
+	return &FriendsHandler{db: db, hub: hub}
 }
 
 type friendEntry struct {
@@ -122,6 +125,32 @@ func (h *FriendsHandler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "pending"})
 }
 
+func (h *FriendsHandler) Sent(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.UserID(r)
+	rows, err := h.db.Query(r.Context(), `
+		SELECT u.id, u.display_name, u.bio, u.avatar_url, u.created_at, u.updated_at, f.created_at
+		FROM friendships f
+		JOIN users u ON u.id = f.addressee_id
+		WHERE f.requester_id = $1 AND f.status = 'pending'
+		ORDER BY f.created_at DESC
+	`, userID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	defer rows.Close()
+	sent := make([]friendEntry, 0)
+	for rows.Next() {
+		var e friendEntry
+		e.User = &models.User{}
+		if err := rows.Scan(&e.User.ID, &e.User.DisplayName, &e.User.Bio, &e.User.AvatarURL,
+			&e.User.CreatedAt, &e.User.UpdatedAt, &e.Since); err == nil {
+			sent = append(sent, e)
+		}
+	}
+	writeJSON(w, http.StatusOK, sent)
+}
+
 func (h *FriendsHandler) Accept(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r)
 	requesterID := chi.URLParam(r, "userID")
@@ -134,6 +163,15 @@ func (h *FriendsHandler) Accept(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "request not found")
 		return
 	}
+
+	// Notify the requester in real-time that their request was accepted
+	var accepter models.User
+	h.db.QueryRow(r.Context(), `SELECT id, display_name, bio, avatar_url, created_at, updated_at FROM users WHERE id = $1`, userID).
+		Scan(&accepter.ID, &accepter.DisplayName, &accepter.Bio, &accepter.AvatarURL, &accepter.CreatedAt, &accepter.UpdatedAt)
+	if payload, err := json.Marshal(accepter); err == nil {
+		h.hub.Broadcast("user:"+requesterID, ws.Event{Type: "friend.accepted", Payload: payload})
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -85,6 +85,7 @@ export const api = {
 	// friends
 	listFriends: () => req<FriendEntry[]>('GET', '/friends'),
 	listFriendRequests: () => req<FriendEntry[]>('GET', '/friends/requests'),
+	listFriendRequestsSent: () => req<FriendEntry[]>('GET', '/friends/sent'),
 	sendFriendRequest: (userId: string) => req<{ status: string }>('POST', `/friends/request/${userId}`),
 	acceptFriendRequest: (userId: string) => req<void>('POST', `/friends/accept/${userId}`),
 	removeFriend: (userId: string) => req<void>('DELETE', `/friends/${userId}`),

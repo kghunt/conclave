@@ -11,3 +11,4 @@ export const activeDM = writable<DMConversation | null>(null);
 export const showProfileModal = writable(false);
 export const friends = writable<FriendEntry[]>([]);
 export const friendRequests = writable<FriendEntry[]>([]);
+export const friendRequestsSent = writable<FriendEntry[]>([]);
