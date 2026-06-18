@@ -5,7 +5,7 @@ import "time"
 type User struct {
 	ID              string    `json:"id"`
 	GoogleID        string    `json:"-"`
-	Email           string    `json:"email"`
+	Email           string    `json:"email,omitempty"`
 	DisplayName     string    `json:"display_name"`
 	Bio             string    `json:"bio"`
 	AvatarURL       string    `json:"avatar_url"`

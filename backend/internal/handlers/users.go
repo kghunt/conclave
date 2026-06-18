@@ -90,8 +90,12 @@ func (h *UsersHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	defer file.Close()
 
 	ext := strings.ToLower(filepath.Ext(header.Filename))
-	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".gif" && ext != ".webp" {
+	if !allowedImageExt[ext] {
 		writeErr(w, http.StatusBadRequest, "unsupported file type")
+		return
+	}
+	if err := validateMIME(file, ext); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -103,7 +107,11 @@ func (h *UsersHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer out.Close()
-	io.Copy(out, file)
+	if _, err := io.Copy(out, file); err != nil {
+		os.Remove(dest)
+		writeErr(w, http.StatusInternalServerError, "save failed")
+		return
+	}
 
 	avatarURL := fmt.Sprintf("%s/avatars/%s", h.baseURL, filename)
 	if _, err = h.db.Exec(r.Context(), `UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2`, avatarURL, userID); err != nil {

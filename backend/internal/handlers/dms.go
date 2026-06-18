@@ -24,7 +24,7 @@ func (h *DMsHandler) ListConversations(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r)
 	rows, err := h.db.Query(r.Context(), `
 		SELECT dc.id, dc.created_at,
-		       u.id, u.display_name, u.bio, u.avatar_url, u.email
+		       u.id, u.display_name, u.bio, u.avatar_url
 		FROM dm_conversations dc
 		JOIN users u ON u.id = CASE WHEN dc.user1_id = $1 THEN dc.user2_id ELSE dc.user1_id END
 		WHERE dc.user1_id = $1 OR dc.user2_id = $1
@@ -40,7 +40,7 @@ func (h *DMsHandler) ListConversations(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var c models.DMConversation
 		c.OtherUser = &models.User{}
-		if err := rows.Scan(&c.ID, &c.CreatedAt, &c.OtherUser.ID, &c.OtherUser.DisplayName, &c.OtherUser.Bio, &c.OtherUser.AvatarURL, &c.OtherUser.Email); err != nil {
+		if err := rows.Scan(&c.ID, &c.CreatedAt, &c.OtherUser.ID, &c.OtherUser.DisplayName, &c.OtherUser.Bio, &c.OtherUser.AvatarURL); err != nil {
 			continue
 		}
 		convs = append(convs, c)
@@ -70,9 +70,9 @@ func (h *DMsHandler) GetOrCreate(w http.ResponseWriter, r *http.Request) {
 			ON CONFLICT (user1_id, user2_id) DO UPDATE SET user1_id = EXCLUDED.user1_id
 			RETURNING id, created_at
 		)
-		SELECT ins.id, ins.created_at, u.id, u.display_name, u.bio, u.avatar_url, u.email
+		SELECT ins.id, ins.created_at, u.id, u.display_name, u.bio, u.avatar_url
 		FROM ins, users u WHERE u.id = $3
-	`, u1, u2, otherID).Scan(&conv.ID, &conv.CreatedAt, &conv.OtherUser.ID, &conv.OtherUser.DisplayName, &conv.OtherUser.Bio, &conv.OtherUser.AvatarURL, &conv.OtherUser.Email)
+	`, u1, u2, otherID).Scan(&conv.ID, &conv.CreatedAt, &conv.OtherUser.ID, &conv.OtherUser.DisplayName, &conv.OtherUser.Bio, &conv.OtherUser.AvatarURL)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "create conversation failed")
 		return
@@ -159,6 +159,10 @@ func (h *DMsHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := decodeJSON(r, &body); err != nil || body.Content == "" {
 		writeErr(w, http.StatusBadRequest, "content required")
+		return
+	}
+	if len(body.Content) > 4000 {
+		writeErr(w, http.StatusBadRequest, "message too long (max 4000 characters)")
 		return
 	}
 
