@@ -1,0 +1,17 @@
+{
+  "name": "Conclave",
+  "short_name": "Conclave",
+  "description": "Self-hosted team chat",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111113",
+  "theme_color": "#1c1c21",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -17,6 +17,9 @@ type Config struct {
 	AvatarDir           string
 	StaticDir           string
 	InstanceAdminEmail  string
+	VAPIDPublicKey      string
+	VAPIDPrivateKey     string
+	VAPIDEmail          string
 }
 
 func Load() (*Config, error) {
@@ -32,6 +35,9 @@ func Load() (*Config, error) {
 		AvatarDir:          env("AVATAR_DIR", "./data/avatars"),
 		StaticDir:          env("STATIC_DIR", "./public"),
 		InstanceAdminEmail: env("INSTANCE_ADMIN_EMAIL", ""),
+		VAPIDPublicKey:     env("VAPID_PUBLIC_KEY", ""),
+		VAPIDPrivateKey:    env("VAPID_PRIVATE_KEY", ""),
+		VAPIDEmail:         env("VAPID_EMAIL", "admin@localhost"),
 	}
 
 	if c.DatabaseURL == "" {

@@ -81,6 +81,13 @@ export const api = {
 	sendDM: (convId: string, content: string) =>
 		req<DirectMessage>('POST', `/dms/conversations/${convId}/messages`, { content }),
 
+	// push notifications
+	getPushKey: () => req<{ public_key: string }>('GET', '/push/key'),
+	pushSubscribe: (sub: { endpoint: string; p256dh: string; auth: string }) =>
+		req<void>('POST', '/push/subscribe', sub),
+	pushUnsubscribe: (endpoint: string) =>
+		req<void>('DELETE', '/push/subscribe', { endpoint }),
+
 	// instance admin
 	getAdminSettings: () => req<AdminSettings>('GET', '/admin/settings'),
 	updateAdminSettings: (data: Partial<AdminSettings>) => req<void>('PATCH', '/admin/settings', data),

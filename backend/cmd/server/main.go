@@ -48,8 +48,9 @@ func main() {
 	adminH := handlers.NewAdmin(pool, cfg.InstanceAdminEmail)
 	serversH := handlers.NewServers(pool)
 	channelsH := handlers.NewChannels(pool)
-	messagesH := handlers.NewMessages(pool, hub)
-	dmsH := handlers.NewDMs(pool, hub)
+	pushH := handlers.NewPush(pool, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDEmail)
+	messagesH := handlers.NewMessages(pool, hub, pushH)
+	dmsH := handlers.NewDMs(pool, hub, pushH)
 	wsH := handlers.NewWS(hub, authSvc, pool, cfg.BaseURL, cfg.FrontendURL)
 
 	r := chi.NewRouter()
@@ -119,6 +120,11 @@ func main() {
 
 		// file upload
 		r.Post("/api/upload", handlers.UploadFile(cfg.AvatarDir, cfg.BaseURL))
+
+		// push notifications
+		r.Get("/api/push/key", pushH.GetPublicKey)
+		r.Post("/api/push/subscribe", pushH.Subscribe)
+		r.Delete("/api/push/subscribe", pushH.Unsubscribe)
 
 		// instance admin
 		r.Get("/api/admin/settings", adminH.GetSettings)

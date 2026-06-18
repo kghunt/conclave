@@ -13,12 +13,13 @@ import (
 )
 
 type MessagesHandler struct {
-	db  *pgxpool.Pool
-	hub *ws.Hub
+	db   *pgxpool.Pool
+	hub  *ws.Hub
+	push *PushHandler
 }
 
-func NewMessages(db *pgxpool.Pool, hub *ws.Hub) *MessagesHandler {
-	return &MessagesHandler{db: db, hub: hub}
+func NewMessages(db *pgxpool.Pool, hub *ws.Hub, push *PushHandler) *MessagesHandler {
+	return &MessagesHandler{db: db, hub: hub, push: push}
 }
 
 func (h *MessagesHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -133,6 +134,20 @@ func (h *MessagesHandler) Send(w http.ResponseWriter, r *http.Request) {
 
 	payload, _ := json.Marshal(m)
 	h.hub.Broadcast("channel:"+channelID, ws.Event{Type: "message.new", Payload: payload})
+
+	if h.push.enabled() {
+		var chName, srvName string
+		h.db.QueryRow(r.Context(), `SELECT c.name, s.name FROM channels c JOIN servers s ON s.id = c.server_id WHERE c.id = $1`, channelID).Scan(&chName, &srvName)
+		content := body.Content
+		if len(content) > 100 {
+			content = content[:97] + "…"
+		}
+		go h.push.SendToServerMembers(serverID, userID, PushPayload{
+			Title: srvName + " #" + chName,
+			Body:  m.Author.DisplayName + ": " + content,
+			URL:   "/",
+		})
+	}
 
 	writeJSON(w, http.StatusCreated, m)
 }
