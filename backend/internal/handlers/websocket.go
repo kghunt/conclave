@@ -69,6 +69,24 @@ func (h *WSHandler) onEvent(c *ws.Client, event ws.Event) {
 		if err := json.Unmarshal(event.Payload, &body); err == nil && body.Room != "" {
 			h.hub.Unsubscribe(c, body.Room)
 		}
+	case "typing":
+		var body struct {
+			Room string `json:"room"`
+		}
+		if err := json.Unmarshal(event.Payload, &body); err != nil || body.Room == "" {
+			return
+		}
+		if !c.HasRoom(body.Room) {
+			return
+		}
+		var displayName string
+		h.db.QueryRow(context.Background(), `SELECT display_name FROM users WHERE id = $1`, c.UserID()).Scan(&displayName)
+		payload, _ := json.Marshal(map[string]string{
+			"user_id":      c.UserID(),
+			"display_name": displayName,
+			"room":         body.Room,
+		})
+		h.hub.BroadcastExcept(body.Room, c, ws.Event{Type: "typing", Payload: payload})
 	}
 }
 

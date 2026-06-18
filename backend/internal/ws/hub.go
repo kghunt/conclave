@@ -151,3 +151,30 @@ func (c *Client) ReadPump(onEvent func(c *Client, event Event)) {
 }
 
 func (c *Client) UserID() string { return c.userID }
+
+func (c *Client) HasRoom(room string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.rooms[room]
+}
+
+// BroadcastExcept sends to all clients in a room except the given one.
+func (h *Hub) BroadcastExcept(room string, exclude *Client, event Event) {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	h.mu.RLock()
+	clients := h.rooms[room]
+	h.mu.RUnlock()
+	for c := range clients {
+		if c == exclude {
+			continue
+		}
+		select {
+		case c.send <- data:
+		default:
+			h.unregister <- c
+		}
+	}
+}
