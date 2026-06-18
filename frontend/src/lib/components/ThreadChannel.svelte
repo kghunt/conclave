@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { api, type Thread } from '$lib/api';
 	import { activeServer, activeChannel } from '$lib/stores';
 	import { socket } from '$lib/socket';
@@ -23,14 +22,16 @@
 
 	const isAdmin = $derived($activeServer?.role === 'owner' || $activeServer?.role === 'admin');
 
-	onMount(() => {
-		loadThreads();
+	// Reload threads whenever the active channel changes (handles switching between thread channels
+	// without a remount, since the component instance is reused while type stays 'threads').
+	$effect(() => {
+		const ch = $activeChannel;
+		const srv = $activeServer;
+		if (!ch || !srv) return;
+		threads = [];
+		showNew = false;
+		api.listThreads(srv.id, ch.id).then((r) => (threads = r ?? [])).catch(() => {});
 	});
-
-	async function loadThreads() {
-		if (!$activeServer || !$activeChannel) return;
-		threads = await api.listThreads($activeServer.id, $activeChannel.id).catch(() => []);
-	}
 
 	// Subscribe to channel room for thread.new and thread.updated events
 	$effect(() => {
