@@ -84,6 +84,12 @@ function playPeerLeaveSound() {
 	playTone(600, 0.14, 0.15);
 }
 
+function playSelfLeaveSound() {
+	// Two descending notes — mirror of the join chime
+	playTone(1100, 0.15, 0.2, 0);
+	playTone(880, 0.2, 0.18, 0.13);
+}
+
 // ── VAD helpers ───────────────────────────────────────────────────────────────
 
 function getRMS(analyser: AnalyserNode): number {
@@ -264,6 +270,7 @@ async function handleSignal(fromId: string, signal: IncomingSignal) {
 
 export function leaveVoice() {
 	if (!channelId) return;
+	playSelfLeaveSound();
 	const ch = channelId;
 	socket.send('voice.leave', { channel_id: ch });
 	socket.unsubscribe('channel:' + ch);
