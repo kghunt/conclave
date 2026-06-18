@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -350,8 +351,13 @@ func (h *ServersHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if ownerID != userID {
-		writeErr(w, http.StatusForbidden, "only the owner can delete this server")
-		return
+		// Instance admin can also delete any space
+		var email string
+		h.db.QueryRow(r.Context(), `SELECT email FROM users WHERE id = $1`, userID).Scan(&email)
+		if !h.IsInstanceAdmin(email) {
+			writeErr(w, http.StatusForbidden, "only the owner can delete this server")
+			return
+		}
 	}
 
 	// CASCADE in the schema handles all related data (members, channels, messages, invites)
@@ -512,6 +518,10 @@ func (h *ServersHandler) Discover(w http.ResponseWriter, r *http.Request) {
 		results = append(results, d)
 	}
 	writeJSON(w, http.StatusOK, results)
+}
+
+func (h *ServersHandler) IsInstanceAdmin(email string) bool {
+	return h.instanceAdminEmail != "" && subtle.ConstantTimeCompare([]byte(email), []byte(h.instanceAdminEmail)) == 1
 }
 
 func randomCode(n int) string {
