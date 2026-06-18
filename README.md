@@ -116,7 +116,10 @@ cp .env.prod.example .env
 **2. Fill in `.env`**
 
 ```env
+# Set the same password in both lines
 POSTGRES_PASSWORD=a-strong-random-password
+DATABASE_URL=postgres://conclave:a-strong-random-password@postgres:5432/conclave?sslmode=disable
+
 JWT_SECRET=a-long-random-string-at-least-32-chars
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-client-secret

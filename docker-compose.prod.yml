@@ -2,9 +2,9 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    env_file: .env
     environment:
       POSTGRES_USER: conclave
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: conclave
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -28,20 +28,14 @@ services:
   app:
     image: ghcr.io/kghunt/conclave:${TAG:-latest}
     restart: unless-stopped
-    ports:
-      - "${PORT:-8080}:8080"
+    env_file: .env
     environment:
-      DATABASE_URL: postgres://conclave:${POSTGRES_PASSWORD}@postgres:5432/conclave?sslmode=disable
       REDIS_URL: redis://redis:6379
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
-      JWT_SECRET: ${JWT_SECRET}
-      BASE_URL: ${BASE_URL}
-      FRONTEND_URL: ${BASE_URL}
-      INSTANCE_ADMIN_EMAIL: ${INSTANCE_ADMIN_EMAIL:-}
-      PORT: 8080
       STATIC_DIR: /app/public
       AVATAR_DIR: /data/avatars
+      PORT: "8080"
+    ports:
+      - "${PORT:-8080}:8080"
     volumes:
       - avatar_data:/data/avatars
     depends_on:
