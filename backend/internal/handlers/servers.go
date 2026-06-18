@@ -75,7 +75,7 @@ func (h *ServersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if settingVal == "false" {
 		var email string
 		h.db.QueryRow(r.Context(), `SELECT email FROM users WHERE id = $1`, userID).Scan(&email)
-		if h.instanceAdminEmail == "" || email != h.instanceAdminEmail {
+		if !h.IsInstanceAdmin(email) {
 			writeErr(w, http.StatusForbidden, "space creation is disabled by the administrator")
 			return
 		}
