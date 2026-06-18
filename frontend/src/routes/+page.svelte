@@ -267,6 +267,13 @@
 				}
 				if ($notifPrefs.mentionSound) playMentionSound();
 			}
+			if (event.type === 'reaction.new') {
+				const chId = event.payload.channel_id;
+				if ($activeChannel?.id !== chId) {
+					mentionedChannels.update(s => new Set([...s, chId]));
+				}
+				if ($notifPrefs.mentionSound) playMentionSound();
+			}
 			// dm.new delivered via user room = message in a non-active conversation
 			if (event.type === 'dm.new' && event.payload.conversation_id !== $activeDM?.id && event.payload.sender?.id !== uid) {
 				if ($notifPrefs.dmSound) playDMSound();

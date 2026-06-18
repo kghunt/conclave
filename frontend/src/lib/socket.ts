@@ -24,7 +24,8 @@ export type WSEvent =
 	| { type: 'thread.new'; payload: import('./api').Thread }
 	| { type: 'thread.updated'; payload: import('./api').Thread }
 	| { type: 'thread.message.new'; payload: import('./api').ThreadMessage }
-	| { type: 'reaction.toggle'; payload: { message_id: string; channel_id: string; emoji: string; user_id: string; action: 'add' | 'remove' } };
+	| { type: 'reaction.toggle'; payload: { message_id: string; channel_id: string; emoji: string; user_id: string; action: 'add' | 'remove' } }
+	| { type: 'reaction.new'; payload: { message_id: string; channel_id: string; emoji: string; reactor_id: string } };
 
 type Handler = (event: WSEvent) => void;
 

@@ -8,15 +8,38 @@ Built with Go, SvelteKit, PostgreSQL, and Redis. Runs as a single `docker compos
 
 ## Features
 
+**Messaging**
+- Real-time messaging via WebSocket (text channels and threads)
+- Reply to messages with quoted context
+- Edit and delete your own messages (admins can delete any)
+- Emoji reactions — click to toggle, notifies the original author
+- Inline image rendering (paste, drag-and-drop, or file picker)
+- Video clip uploads (mp4, webm, mov) with configurable size cap
+- @mention notifications with sound alerts and channel highlights
+
+**Spaces & Channels**
+- Public spaces (open join) or invite-only with shareable invite links
+- Space discovery page for finding public communities
+- Join request flow for spaces that require approval
+- Custom roles with names and colours — assigned per member
+- Per-channel visibility and write permissions per role
+- Default "everyone" role with overridable defaults
+- Kick, ban, and unban members
+
+**Direct Messages**
+- One-to-one DMs (friends only)
+- Friend requests and friend list
+
+**Users**
 - Google OAuth sign-in
-- Spaces with public/invite-only access
-- Channels with real-time messaging (WebSocket)
-- Direct messages
-- Image uploads and inline rendering (paste or file picker)
-- Edit and delete your own messages
-- Role system: Owner → Admin → Member
 - User profiles with avatars (auto-generated if not set)
-- Instance admin panel for data retention settings
+- Online/away presence indicators
+
+**Instance Admin**
+- Message and inactive-space retention policies
+- Max video upload size (set to 0 to disable video uploads)
+- Ban/unban users instance-wide
+- Custom theme (accent colour, background, sidebar, etc.)
 
 ---
 
@@ -212,6 +235,7 @@ From there you can configure:
 |---|---|
 | **Message retention** | Delete messages older than N days (`0` = keep forever) |
 | **Inactive space retention** | Delete spaces with no activity for N days (`0` = never) |
+| **Max video upload size** | Maximum MB for video uploads (`0` = disable video uploads, default 50MB) |
 
 Cleanup runs automatically every 24 hours and at startup.
 
