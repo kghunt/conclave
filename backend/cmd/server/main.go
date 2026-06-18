@@ -79,7 +79,7 @@ func main() {
 	r.Handle("/avatars/*", http.StripPrefix("/avatars/", http.FileServer(http.Dir(cfg.AvatarDir))))
 
 	r.Group(func(r chi.Router) {
-		r.Use(apimiddleware.Auth(authSvc))
+		r.Use(apimiddleware.Auth(authSvc, pool))
 
 		// users
 		r.Get("/api/users/me", usersH.Me)
@@ -99,9 +99,16 @@ func main() {
 			serversH.UploadIcon(w, r, cfg.AvatarDir, cfg.BaseURL)
 		})
 		r.Post("/api/servers/{serverID}/join", serversH.Join)
+		r.Post("/api/servers/{serverID}/join-request", serversH.RequestJoin)
+		r.Get("/api/servers/{serverID}/join-requests", serversH.ListJoinRequests)
+		r.Patch("/api/servers/{serverID}/join-requests/{requestID}", serversH.ReviewJoinRequest)
 		r.Delete("/api/servers/{serverID}/leave", serversH.Leave)
 		r.Get("/api/servers/{serverID}/members", serversH.Members)
 		r.Patch("/api/servers/{serverID}/members/{userID}", serversH.UpdateMember)
+		r.Delete("/api/servers/{serverID}/members/{userID}", serversH.KickMember)
+		r.Post("/api/servers/{serverID}/members/{userID}/ban", serversH.BanMember)
+		r.Delete("/api/servers/{serverID}/bans/{userID}", serversH.UnbanMember)
+		r.Get("/api/servers/{serverID}/bans", serversH.ListBans)
 		r.Post("/api/servers/{serverID}/invites", serversH.CreateInvite)
 		r.Post("/api/invites/{code}/join", serversH.JoinByInvite)
 
@@ -145,6 +152,9 @@ func main() {
 		r.Get("/api/admin/settings", adminH.GetSettings)
 		r.Patch("/api/admin/settings", adminH.UpdateSettings)
 		r.Post("/api/admin/retention/run", adminH.RunRetention)
+		r.Get("/api/admin/users", adminH.ListInstanceUsers)
+		r.Post("/api/admin/users/{userID}/ban", adminH.BanInstanceUser)
+		r.Delete("/api/admin/users/{userID}/ban", adminH.UnbanInstanceUser)
 	})
 
 	// serve frontend (SvelteKit static build) with SPA fallback

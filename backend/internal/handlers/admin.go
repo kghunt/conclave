@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/karl/conclave/internal/middleware"
 )
@@ -139,6 +140,67 @@ func (h *AdminHandler) GetTheme(w http.ResponseWriter, r *http.Request) {
 
 func (h *AdminHandler) IsInstanceAdmin(email string) bool {
 	return h.instanceAdminEmail != "" && subtle.ConstantTimeCompare([]byte(email), []byte(h.instanceAdminEmail)) == 1
+}
+
+// BanInstanceUser bans a user from the entire instance.
+func (h *AdminHandler) BanInstanceUser(w http.ResponseWriter, r *http.Request) {
+	if !h.isAdmin(r) {
+		writeErr(w, http.StatusForbidden, "instance admin only")
+		return
+	}
+	targetID := chi.URLParam(r, "userID")
+	// Prevent self-ban
+	if targetID == middleware.UserID(r) {
+		writeErr(w, http.StatusBadRequest, "cannot ban yourself")
+		return
+	}
+	h.db.Exec(r.Context(), `UPDATE users SET instance_banned = true WHERE id = $1`, targetID)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// UnbanInstanceUser lifts an instance-wide ban.
+func (h *AdminHandler) UnbanInstanceUser(w http.ResponseWriter, r *http.Request) {
+	if !h.isAdmin(r) {
+		writeErr(w, http.StatusForbidden, "instance admin only")
+		return
+	}
+	targetID := chi.URLParam(r, "userID")
+	h.db.Exec(r.Context(), `UPDATE users SET instance_banned = false WHERE id = $1`, targetID)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// ListInstanceUsers returns all users with their ban status for the admin panel.
+func (h *AdminHandler) ListInstanceUsers(w http.ResponseWriter, r *http.Request) {
+	if !h.isAdmin(r) {
+		writeErr(w, http.StatusForbidden, "instance admin only")
+		return
+	}
+	rows, err := h.db.Query(r.Context(), `
+		SELECT id, display_name, email, avatar_url, instance_banned, created_at
+		FROM users ORDER BY display_name
+	`)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	defer rows.Close()
+	type userRow struct {
+		ID             string `json:"id"`
+		DisplayName    string `json:"display_name"`
+		Email          string `json:"email"`
+		AvatarURL      string `json:"avatar_url"`
+		InstanceBanned bool   `json:"instance_banned"`
+		CreatedAt      string `json:"created_at"`
+	}
+	users := make([]userRow, 0)
+	for rows.Next() {
+		var u userRow
+		if err := rows.Scan(&u.ID, &u.DisplayName, &u.Email, &u.AvatarURL, &u.InstanceBanned, &u.CreatedAt); err != nil {
+			continue
+		}
+		users = append(users, u)
+	}
+	writeJSON(w, http.StatusOK, users)
 }
 
 // GetConfig returns public instance-wide config flags (no auth required).

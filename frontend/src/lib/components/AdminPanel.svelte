@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { api, type AdminSettings } from '$lib/api';
+	import { api, type AdminSettings, type InstanceUser } from '$lib/api';
 
 	let { onclose }: { onclose: () => void } = $props();
 
@@ -9,6 +9,13 @@
 	let running = $state(false);
 	let runStatus = $state('');
 	let error = $state('');
+	let instanceUsers = $state<InstanceUser[]>([]);
+	let userSearch = $state('');
+	let banningUser = $state<string | null>(null);
+
+	const filteredUsers = $derived(instanceUsers.filter((u) =>
+		!userSearch || u.display_name.toLowerCase().includes(userSearch.toLowerCase()) || u.email.toLowerCase().includes(userSearch.toLowerCase())
+	));
 
 	type ThemeKey = 'accent' | 'bg' | 'sidebar' | 'panel' | 'input' | 'border' | 'text' | 'text_muted';
 	const themeDefaults: Record<ThemeKey, string> = {
@@ -34,6 +41,9 @@
 		try {
 			const t = await fetch('/api/theme').then((r) => r.json()) as Record<string, string>;
 			theme = { ...themeDefaults, ...t };
+		} catch { /* ignore */ }
+		try {
+			instanceUsers = await api.listInstanceUsers();
 		} catch { /* ignore */ }
 	});
 
@@ -80,6 +90,25 @@
 			error = e.message;
 		} finally {
 			running = false;
+		}
+	}
+
+	async function toggleInstanceBan(user: InstanceUser) {
+		if (banningUser) return;
+		banningUser = user.id;
+		try {
+			if (user.instance_banned) {
+				await api.unbanInstanceUser(user.id);
+			} else {
+				await api.banInstanceUser(user.id);
+			}
+			instanceUsers = instanceUsers.map((u) =>
+				u.id === user.id ? { ...u, instance_banned: !u.instance_banned } : u
+			);
+		} catch (e: any) {
+			error = e.message;
+		} finally {
+			banningUser = null;
 		}
 	}
 
@@ -161,6 +190,38 @@
 					<span class="unit">days</span>
 				</div>
 				<p class="hint">Deletes spaces with no message activity for this many days.</p>
+			</div>
+		</section>
+
+		<section>
+			<h3>Users</h3>
+			<p class="hint">Manage user access. Banned users cannot log in or use the instance.</p>
+			<input
+				class="user-search"
+				type="search"
+				placeholder="Search users…"
+				bind:value={userSearch}
+			/>
+			<div class="user-list">
+				{#each filteredUsers as user}
+					<div class="user-row" class:banned={user.instance_banned}>
+						<div class="user-info">
+							<span class="user-name">{user.display_name}</span>
+							<span class="user-email">{user.email}</span>
+						</div>
+						{#if user.instance_banned}
+							<span class="ban-badge">Banned</span>
+						{/if}
+						<button
+							class="ban-btn"
+							class:unban={user.instance_banned}
+							onclick={() => toggleInstanceBan(user)}
+							disabled={banningUser === user.id}
+						>
+							{banningUser === user.id ? '…' : user.instance_banned ? 'Unban' : 'Ban'}
+						</button>
+					</div>
+				{/each}
 			</div>
 		</section>
 
@@ -301,6 +362,57 @@
 	input[type="number"]:focus { border-color: var(--accent); }
 	.unit { color: var(--text-muted); font-size: 0.875rem; }
 	.hint { color: var(--text-muted); font-size: 0.78rem; margin-top: 0.375rem; line-height: 1.4; }
+	.user-search {
+		display: block;
+		width: 100%;
+		background: var(--bg-input);
+		border: 1px solid var(--border);
+		color: var(--text);
+		padding: 0.4rem 0.625rem;
+		border-radius: 6px;
+		font-size: 0.875rem;
+		margin-top: 0.75rem;
+		box-sizing: border-box;
+		outline: none;
+	}
+	.user-search:focus { border-color: var(--accent); }
+	.user-list { max-height: 220px; overflow-y: auto; margin-top: 0.5rem; }
+	.user-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.4rem 0;
+		border-bottom: 1px solid rgba(255,255,255,0.04);
+	}
+	.user-row.banned { opacity: 0.6; }
+	.user-info { flex: 1; min-width: 0; }
+	.user-name { display: block; font-size: 0.875rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.user-email { display: block; font-size: 0.7rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.ban-badge {
+		font-size: 0.65rem;
+		font-weight: 700;
+		background: rgba(224,69,69,0.2);
+		color: #e04545;
+		border-radius: 3px;
+		padding: 0.1rem 0.3rem;
+		flex-shrink: 0;
+	}
+	.ban-btn {
+		background: rgba(224,69,69,0.15);
+		border: 1px solid rgba(224,69,69,0.4);
+		color: #e04545;
+		padding: 0.25rem 0.6rem;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.75rem;
+		flex-shrink: 0;
+	}
+	.ban-btn.unban {
+		background: rgba(59,165,92,0.15);
+		border-color: rgba(59,165,92,0.4);
+		color: #3ba55c;
+	}
+	.ban-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 	.color-grid { display: flex; flex-direction: column; gap: 0.625rem; margin-top: 0.875rem; }
 	.color-row { display: flex; align-items: center; justify-content: space-between; }
 	.color-label { font-size: 0.875rem; color: var(--text); }

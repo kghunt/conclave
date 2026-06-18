@@ -215,7 +215,7 @@
 			: [] as ServerMember[]
 	);
 
-	// Listen for incoming mentions on the personal WS room
+	// Listen for mentions, kicks, bans on the personal WS room
 	$effect(() => {
 		const uid = $currentUser?.id;
 		if (!uid) return;
@@ -224,6 +224,15 @@
 				const chId = event.payload.channel_id;
 				if ($activeChannel?.id !== chId) {
 					mentionedChannels.update(s => new Set([...s, chId]));
+				}
+			}
+			if (event.type === 'member.kicked' || event.type === 'member.banned') {
+				const sid = event.payload.server_id;
+				servers.update((prev) => prev.filter((s) => s.id !== sid));
+				if ($activeServer?.id === sid) {
+					activeServer.set(null);
+					activeChannel.set(null);
+					channels.set([]);
 				}
 			}
 		});

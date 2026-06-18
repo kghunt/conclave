@@ -16,3 +16,4 @@ export const instanceConfig = writable<InstanceConfig>({ allow_user_space_creati
 export const serverMembers = writable<ServerMember[]>([]);
 export const mentionedChannels = writable<Set<string>>(new Set());
 export const presenceMap = writable<Record<string, string>>({}); // userId → 'online'|'away'|'offline'
+export const pendingJoinRequests = writable<import('./api').JoinRequest[]>([]); // pending join requests for current space

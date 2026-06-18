@@ -30,7 +30,7 @@ export const api = {
 		req<Server>('POST', '/servers', data),
 	getServer: (id: string) => req<Server>('GET', `/servers/${id}`),
 	joinServer: (id: string) => req<void>('POST', `/servers/${id}/join`),
-	updateServer: (id: string, data: { name?: string; description?: string; is_public?: boolean; member_invites_enabled?: boolean; member_invite_expiry_days?: number }) =>
+	updateServer: (id: string, data: { name?: string; description?: string; is_public?: boolean; show_in_discovery?: boolean; member_invites_enabled?: boolean; member_invite_expiry_days?: number }) =>
 		req<Server>('PATCH', `/servers/${id}`, data),
 	uploadServerIcon: async (id: string, file: File) => {
 		const form = new FormData();
@@ -101,15 +101,34 @@ export const api = {
 	// public config
 	getConfig: () => req<InstanceConfig>('GET', '/config'),
 
-	// space discovery
+	// space discovery & join requests
 	discoverServers: (q: string) =>
 		req<ServerDiscovery[]>('GET', `/servers/discover?q=${encodeURIComponent(q)}`),
+	requestJoinServer: (serverId: string) =>
+		req<{ id: string }>('POST', `/servers/${serverId}/join-request`),
+	listJoinRequests: (serverId: string) =>
+		req<JoinRequest[]>('GET', `/servers/${serverId}/join-requests`),
+	reviewJoinRequest: (serverId: string, requestId: string, action: 'approve' | 'decline') =>
+		req<void>('PATCH', `/servers/${serverId}/join-requests/${requestId}`, { action }),
 	getPresence: (serverId: string) => req<Record<string, string>>('GET', `/servers/${serverId}/presence`),
+
+	// space moderation
+	kickMember: (serverId: string, userId: string) =>
+		req<void>('DELETE', `/servers/${serverId}/members/${userId}`),
+	banMember: (serverId: string, userId: string) =>
+		req<void>('POST', `/servers/${serverId}/members/${userId}/ban`),
+	unbanMember: (serverId: string, userId: string) =>
+		req<void>('DELETE', `/servers/${serverId}/bans/${userId}`),
+	listBans: (serverId: string) =>
+		req<BannedUser[]>('GET', `/servers/${serverId}/bans`),
 
 	// instance admin
 	getAdminSettings: () => req<AdminSettings>('GET', '/admin/settings'),
 	updateAdminSettings: (data: Partial<AdminSettings>) => req<void>('PATCH', '/admin/settings', data),
 	runRetention: () => req<{ status: string }>('POST', '/admin/retention/run'),
+	listInstanceUsers: () => req<InstanceUser[]>('GET', '/admin/users'),
+	banInstanceUser: (userId: string) => req<void>('POST', `/admin/users/${userId}/ban`),
+	unbanInstanceUser: (userId: string) => req<void>('DELETE', `/admin/users/${userId}/ban`),
 
 	// avatar upload
 	uploadAvatar: async (file: File) => {
@@ -154,6 +173,30 @@ export interface ServerDiscovery {
 	icon_url: string;
 	member_count: number;
 	is_member: boolean;
+	requires_request: boolean;
+	has_pending_request: boolean;
+}
+
+export interface JoinRequest {
+	id: string;
+	server_id: string;
+	user: User;
+	status: string;
+	created_at: string;
+}
+
+export interface BannedUser {
+	user: User;
+	banned_at: string;
+}
+
+export interface InstanceUser {
+	id: string;
+	display_name: string;
+	email: string;
+	avatar_url: string;
+	instance_banned: boolean;
+	created_at: string;
 }
 
 export interface Server {
@@ -163,6 +206,7 @@ export interface Server {
 	icon_url: string;
 	owner_id: string;
 	is_public: boolean;
+	show_in_discovery: boolean;
 	invite_code: string;
 	member_invites_enabled: boolean;
 	member_invite_expiry_days: number;

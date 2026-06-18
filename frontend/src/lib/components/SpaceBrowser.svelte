@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { api, type ServerDiscovery } from '$lib/api';
 	import { servers, activeServer, channels, activeChannel } from '$lib/stores';
-	import Avatar from './Avatar.svelte';
+	import { socket } from '$lib/socket';
 
 	let { onclose }: { onclose: () => void } = $props();
 
 	let query = $state('');
 	let results = $state<ServerDiscovery[]>([]);
 	let loading = $state(false);
-	let joining = $state<Record<string, boolean>>({});
+	let busy = $state<Record<string, boolean>>({});
 	let debounceTimer: ReturnType<typeof setTimeout>;
 
 	async function search(q: string) {
@@ -28,8 +28,8 @@
 	}
 
 	async function join(space: ServerDiscovery) {
-		if (joining[space.id] || space.is_member) return;
-		joining = { ...joining, [space.id]: true };
+		if (busy[space.id] || space.is_member) return;
+		busy = { ...busy, [space.id]: true };
 		try {
 			await api.joinServer(space.id);
 			results = results.map((s) => s.id === space.id ? { ...s, is_member: true } : s);
@@ -45,11 +45,42 @@
 		} catch {
 			// ignore
 		} finally {
-			joining = { ...joining, [space.id]: false };
+			busy = { ...busy, [space.id]: false };
 		}
 	}
 
-	// Load all public spaces on open
+	async function requestJoin(space: ServerDiscovery) {
+		if (busy[space.id] || space.has_pending_request) return;
+		busy = { ...busy, [space.id]: true };
+		try {
+			await api.requestJoinServer(space.id);
+			results = results.map((s) => s.id === space.id ? { ...s, has_pending_request: true } : s);
+		} catch {
+			// ignore
+		} finally {
+			busy = { ...busy, [space.id]: false };
+		}
+	}
+
+	// When a join request is approved, reload servers and navigate there
+	const unsub = socket.on((event) => {
+		if (event.type === 'join_request.reviewed' && event.payload.action === 'approve') {
+			api.listServers().then((updated) => {
+				servers.set(updated);
+				const joined = updated.find((s: any) => s.id === event.payload.server_id);
+				if (joined) {
+					activeServer.set(joined);
+					activeChannel.set(null);
+					channels.set([]);
+					onclose();
+				}
+			});
+		}
+	});
+
+	$effect(() => () => unsub());
+
+	// Load all discoverable spaces on open
 	search('');
 </script>
 
@@ -87,26 +118,35 @@
 							{/if}
 						</div>
 						<div class="space-info">
-							<div class="space-name">{space.name}</div>
+							<div class="space-name">
+								{space.name}
+								{#if space.requires_request}<span class="private-badge">🔒 Private</span>{/if}
+							</div>
 							{#if space.description}
 								<div class="space-desc">{space.description}</div>
 							{/if}
 							<div class="space-meta">{space.member_count} {space.member_count === 1 ? 'member' : 'members'}</div>
 						</div>
-						<button
-							class="join-btn"
-							class:joined={space.is_member}
-							disabled={space.is_member || joining[space.id]}
-							onclick={() => join(space)}
-						>
-							{#if space.is_member}
-								Joined
-							{:else if joining[space.id]}
-								Joining…
-							{:else}
-								Join
-							{/if}
-						</button>
+						{#if space.is_member}
+							<button class="join-btn joined" disabled>Joined</button>
+						{:else if space.requires_request}
+							<button
+								class="join-btn"
+								class:requested={space.has_pending_request}
+								disabled={space.has_pending_request || busy[space.id]}
+								onclick={() => requestJoin(space)}
+							>
+								{#if busy[space.id]}Requesting…{:else if space.has_pending_request}Requested{:else}Request{/if}
+							</button>
+						{:else}
+							<button
+								class="join-btn"
+								disabled={busy[space.id]}
+								onclick={() => join(space)}
+							>
+								{busy[space.id] ? 'Joining…' : 'Join'}
+							</button>
+						{/if}
 					</div>
 				{/each}
 			{/if}
@@ -243,6 +283,17 @@
 		color: var(--text-muted);
 		cursor: default;
 	}
+	.join-btn.requested {
+		background: var(--bg-input);
+		color: var(--text-muted);
+		cursor: default;
+	}
 	.join-btn:disabled { cursor: not-allowed; opacity: 0.6; }
-	.join-btn.joined:disabled { opacity: 1; }
+	.join-btn.joined:disabled, .join-btn.requested:disabled { opacity: 1; }
+	.private-badge {
+		font-size: 0.7rem;
+		color: var(--text-muted);
+		margin-left: 0.4rem;
+		font-weight: 400;
+	}
 </style>

@@ -21,12 +21,21 @@ type Server struct {
 	IconURL                string    `json:"icon_url"`
 	OwnerID                string    `json:"owner_id"`
 	IsPublic               bool      `json:"is_public"`
+	ShowInDiscovery        bool      `json:"show_in_discovery"`
 	InviteCode             string    `json:"invite_code"`
 	MemberInvitesEnabled   bool      `json:"member_invites_enabled"`
 	MemberInviteExpiryDays int       `json:"member_invite_expiry_days"`
 	CreatedAt              time.Time `json:"created_at"`
 	// populated on list/get
 	Role                   string    `json:"role,omitempty"`
+}
+
+type JoinRequest struct {
+	ID        string    `json:"id"`
+	ServerID  string    `json:"server_id"`
+	User      *User     `json:"user"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Channel struct {
