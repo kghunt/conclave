@@ -180,6 +180,14 @@
 		if (file) uploadAndSend(file);
 	}
 
+	// Gboard (Android) sends GIFs via beforeinput, not paste
+	function onBeforeInput(e: InputEvent) {
+		const file = e.dataTransfer?.files?.[0];
+		if (!file?.type.startsWith('image/')) return;
+		e.preventDefault();
+		uploadAndSend(file);
+	}
+
 	function onKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
@@ -261,6 +269,7 @@
 					bind:value={input}
 					onkeydown={onKeydown}
 					onpaste={onPaste}
+					onbeforeinput={onBeforeInput}
 					placeholder={$activeChannel ? `Message #${$activeChannel.name}` : $activeDM ? `Message ${$activeDM.other_user.display_name}` : 'Select a channel'}
 					rows="1"
 					disabled={(!$activeChannel && !$activeDM) || uploading}
