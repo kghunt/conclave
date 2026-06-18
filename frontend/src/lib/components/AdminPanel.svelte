@@ -292,8 +292,10 @@
 		background: var(--bg-panel);
 		border: 1px solid var(--border);
 		border-radius: 10px;
-		width: 480px;
-		max-height: 80vh;
+		width: calc(100vw - 2rem);
+		max-width: 860px;
+		height: calc(100vh - 2rem);
+		max-height: calc(100vh - 2rem);
 		overflow-y: auto;
 		display: flex;
 		flex-direction: column;
@@ -376,7 +378,7 @@
 		outline: none;
 	}
 	.user-search:focus { border-color: var(--accent); }
-	.user-list { max-height: 220px; overflow-y: auto; margin-top: 0.5rem; }
+	.user-list { max-height: 360px; overflow-y: auto; margin-top: 0.5rem; }
 	.user-row {
 		display: flex;
 		align-items: center;
