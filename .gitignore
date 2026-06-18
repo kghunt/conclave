@@ -1,0 +1,26 @@
+# Environment — never commit secrets
+.env
+.env.local
+
+# Go
+backend/data/
+backend/server
+backend/conclave
+
+# Frontend
+frontend/node_modules/
+frontend/.svelte-kit/
+frontend/build/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp downloads
+*.tar.gz
