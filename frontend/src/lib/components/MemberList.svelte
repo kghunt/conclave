@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { api, type ServerMember } from '$lib/api';
-	import { activeServer, currentUser, activeDM, activeChannel, dmConversations, friends } from '$lib/stores';
+	import { api, type ServerMember, type JoinRequest } from '$lib/api';
+	import { activeServer, currentUser, activeDM, activeChannel, dmConversations, friends, pendingJoinRequests } from '$lib/stores';
 	import { socket } from '$lib/socket';
 	import Avatar from './Avatar.svelte';
 
@@ -10,6 +10,10 @@
 	let members: ServerMember[] = $state([]);
 	let menuMember = $state<ServerMember | null>(null);
 	let saving = $state(false);
+
+	const isAdmin = $derived($activeServer?.role === 'owner' || $activeServer?.role === 'admin');
+	const isOwner = $derived($activeServer?.role === 'owner');
+	const isInstanceAdmin = $derived($currentUser?.is_instance_admin ?? false);
 
 	onMount(load);
 
@@ -26,6 +30,13 @@
 				event.payload.server_id === id
 			) {
 				load();
+			}
+			if (event.type === 'join_request.new' && event.payload.server_id === id && isAdmin) {
+				pendingJoinRequests.update((prev) => {
+					const exists = prev.find((r) => r.user?.id === event.payload.user?.id);
+					if (exists) return prev;
+					return [...prev, { id: event.payload.request_id, server_id: id, user: event.payload.user, status: 'pending', created_at: new Date().toISOString() }];
+				});
 			}
 		});
 		return () => {
@@ -61,8 +72,60 @@
 			.filter((g) => g.members.length > 0);
 	}
 
-	const isOwner = $derived($activeServer?.role === 'owner');
 	const friendIds = $derived(new Set($friends.map((f) => f.user.id)));
+
+	// Load join requests when current user is admin
+	$effect(() => {
+		if (isAdmin && serverId) {
+			api.listJoinRequests(serverId).then((reqs) => {
+				pendingJoinRequests.set(reqs ?? []);
+			}).catch(() => pendingJoinRequests.set([]));
+		} else {
+			pendingJoinRequests.set([]);
+		}
+	});
+
+	async function reviewRequest(req: JoinRequest, action: 'approve' | 'decline') {
+		await api.reviewJoinRequest(serverId, req.id, action);
+		pendingJoinRequests.update((prev) => prev.filter((r) => r.id !== req.id));
+		if (action === 'approve') load();
+	}
+
+	async function kickMember(m: ServerMember) {
+		if (saving) return;
+		saving = true;
+		try {
+			await api.kickMember(serverId, m.user.id);
+			members = members.filter((mem) => mem.user.id !== m.user.id);
+		} finally {
+			saving = false;
+			menuMember = null;
+		}
+	}
+
+	async function banMember(m: ServerMember) {
+		if (saving) return;
+		saving = true;
+		try {
+			await api.banMember(serverId, m.user.id);
+			members = members.filter((mem) => mem.user.id !== m.user.id);
+		} finally {
+			saving = false;
+			menuMember = null;
+		}
+	}
+
+	async function banFromInstance(m: ServerMember) {
+		if (saving) return;
+		saving = true;
+		try {
+			await api.banInstanceUser(m.user.id);
+			members = members.filter((mem) => mem.user.id !== m.user.id);
+		} finally {
+			saving = false;
+			menuMember = null;
+		}
+	}
 
 	let addFriendState = $state<Record<string, 'sending' | 'sent' | 'error'>>({});
 
@@ -110,6 +173,20 @@
 <aside class="member-list">
 	<div class="list-header">Members</div>
 
+	{#if isAdmin && $pendingJoinRequests.length > 0}
+		<div class="requests-section">
+			<div class="requests-header">Join Requests — {$pendingJoinRequests.length}</div>
+			{#each $pendingJoinRequests as req}
+				<div class="request-row">
+					<Avatar url={req.user.avatar_url} name={req.user.display_name} size={28} />
+					<span class="request-name">{req.user.display_name}</span>
+					<button class="req-btn approve" onclick={() => reviewRequest(req, 'approve')} title="Approve">✓</button>
+					<button class="req-btn decline" onclick={() => reviewRequest(req, 'decline')} title="Decline">✕</button>
+				</div>
+			{/each}
+		</div>
+	{/if}
+
 	{#each grouped() as group}
 		<div class="role-header">
 			{group.role === 'owner' ? '👑' : group.role === 'admin' ? '⚡' : ''}
@@ -147,22 +224,29 @@
 								{/if}
 							</button>
 						{/if}
-						{#if isOwner && m.role !== 'owner'}
-							<button class="action-btn" onclick={(e) => { e.stopPropagation(); menuMember = menuMember?.user.id === m.user.id ? null : m; }} title="Manage role">
+						{#if (isAdmin && m.role !== 'owner') || isInstanceAdmin}
+							<button class="action-btn" onclick={(e) => { e.stopPropagation(); menuMember = menuMember?.user.id === m.user.id ? null : m; }} title="Manage">
 								⋯
 							</button>
 						{/if}
 					</div>
 					{#if menuMember?.user.id === m.user.id}
 						<div class="role-menu">
-							{#if m.role === 'member'}
-								<button onclick={() => setRole(m, 'admin')} disabled={saving}>
-									⚡ Promote to Admin
-								</button>
-							{:else if m.role === 'admin'}
-								<button onclick={() => setRole(m, 'member')} disabled={saving}>
-									Remove Admin
-								</button>
+							{#if isOwner && m.role !== 'owner'}
+								{#if m.role === 'member'}
+									<button onclick={() => setRole(m, 'admin')} disabled={saving}>⚡ Promote to Admin</button>
+								{:else if m.role === 'admin'}
+									<button onclick={() => setRole(m, 'member')} disabled={saving}>Remove Admin</button>
+								{/if}
+							{/if}
+							{#if isAdmin && m.role !== 'owner' && !(isAdmin && !isOwner && m.role === 'admin')}
+								<div class="role-menu-divider"></div>
+								<button onclick={() => kickMember(m)} disabled={saving}>Kick from Space</button>
+								<button class="danger" onclick={() => banMember(m)} disabled={saving}>Ban from Space</button>
+							{/if}
+							{#if isInstanceAdmin}
+								<div class="role-menu-divider"></div>
+								<button class="danger" onclick={() => banFromInstance(m)} disabled={saving}>Ban from Instance</button>
 							{/if}
 						</div>
 					{/if}
@@ -262,6 +346,50 @@
 		.action-btn { padding: 0.35rem; }
 	}
 
+	.requests-section {
+		border-bottom: 1px solid #0e0e10;
+		padding-bottom: 0.5rem;
+		margin-bottom: 0.25rem;
+	}
+	.requests-header {
+		font-size: 0.7rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		color: var(--accent);
+		letter-spacing: 0.05em;
+		padding: 0.875rem 0.75rem 0.3rem;
+	}
+	.request-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.3rem 0.75rem;
+	}
+	.request-name {
+		flex: 1;
+		font-size: 0.875rem;
+		color: var(--text);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.req-btn {
+		background: none;
+		border: 1px solid var(--border);
+		border-radius: 3px;
+		cursor: pointer;
+		width: 24px;
+		height: 24px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 0.75rem;
+		flex-shrink: 0;
+	}
+	.req-btn.approve { color: #3ba55c; border-color: #3ba55c; }
+	.req-btn.approve:hover { background: rgba(59,165,92,0.15); }
+	.req-btn.decline { color: #e04545; border-color: #e04545; }
+	.req-btn.decline:hover { background: rgba(224,69,69,0.15); }
 	.role-menu {
 		position: absolute;
 		right: 0.5rem;
@@ -271,7 +399,7 @@
 		border-radius: 6px;
 		padding: 0.3rem;
 		z-index: 50;
-		min-width: 160px;
+		min-width: 180px;
 		box-shadow: 0 4px 16px rgba(0,0,0,0.4);
 	}
 	.role-menu button {
@@ -286,6 +414,13 @@
 		border-radius: 4px;
 		font-size: 0.875rem;
 	}
+	.role-menu button.danger { color: #e04545; }
 	.role-menu button:hover:not(:disabled) { background: rgba(255,255,255,0.08); }
+	.role-menu button.danger:hover:not(:disabled) { background: rgba(224,69,69,0.1); }
 	.role-menu button:disabled { opacity: 0.5; cursor: not-allowed; }
+	.role-menu-divider {
+		height: 1px;
+		background: var(--border);
+		margin: 0.2rem 0;
+	}
 </style>

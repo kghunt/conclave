@@ -17,6 +17,7 @@
 	let editName = $state(server.name);
 	let editDesc = $state(server.description);
 	let editPublic = $state(server.is_public);
+	let editShowInDiscovery = $state(server.show_in_discovery ?? false);
 	let editMemberInvites = $state(server.member_invites_enabled);
 	let editExpiryDays = $state(server.member_invite_expiry_days ?? 7);
 	let saving = $state(false);
@@ -41,6 +42,7 @@
 				name: editName,
 				description: editDesc,
 				is_public: editPublic,
+				show_in_discovery: editShowInDiscovery,
 				member_invites_enabled: editMemberInvites,
 				member_invite_expiry_days: editExpiryDays
 			});
@@ -151,6 +153,12 @@
 			<input type="checkbox" bind:checked={editPublic} />
 			Public (anyone can join)
 		</label>
+		{#if !editPublic}
+			<label class="checkbox-label">
+				<input type="checkbox" bind:checked={editShowInDiscovery} />
+				Show in space browser (invite-only, users can request to join)
+			</label>
+		{/if}
 		<div class="section-divider">Member Invites</div>
 		<label class="checkbox-label">
 			<input type="checkbox" bind:checked={editMemberInvites} />
