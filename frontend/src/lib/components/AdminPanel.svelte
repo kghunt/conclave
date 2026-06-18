@@ -19,8 +19,8 @@
 
 	type ThemeKey = 'accent' | 'bg' | 'sidebar' | 'panel' | 'input' | 'border' | 'text' | 'text_muted';
 	const themeDefaults: Record<ThemeKey, string> = {
-		accent: '#e8541e', bg: '#111113', sidebar: '#19191d', panel: '#1c1c21',
-		input: '#26262b', border: '#2e2e38', text: '#f0eff4', text_muted: '#8b8b99'
+		accent: '#e8541e', bg: '#161617', sidebar: '#4b4b4e', panel: '#1c1c21',
+		input: '#26262b', border: '#494950', text: '#f0eff4', text_muted: '#d3d3de'
 	};
 	const themeLabels: Record<ThemeKey, string> = {
 		accent: 'Accent', bg: 'App background', sidebar: 'Sidebar', panel: 'Panel / header',
