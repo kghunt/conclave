@@ -136,6 +136,7 @@ func (c *Client) ReadPump(onEvent func(c *Client, event Event)) {
 		c.hub.unregister <- c
 		c.conn.Close()
 	}()
+	c.conn.SetReadLimit(4096)
 	for {
 		_, msg, err := c.conn.ReadMessage()
 		if err != nil {

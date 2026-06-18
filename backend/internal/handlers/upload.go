@@ -28,12 +28,12 @@ func UploadFile(uploadDir, baseURL string) http.HandlerFunc {
 		defer file.Close()
 
 		ext := strings.ToLower(filepath.Ext(header.Filename))
-		allowed := map[string]bool{
-			".jpg": true, ".jpeg": true, ".png": true,
-			".gif": true, ".webp": true, ".svg": true,
-		}
-		if !allowed[ext] {
+		if !allowedImageExt[ext] {
 			writeErr(w, http.StatusBadRequest, "only images are supported")
+			return
+		}
+		if err := validateMIME(file, ext); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
 
@@ -45,10 +45,48 @@ func UploadFile(uploadDir, baseURL string) http.HandlerFunc {
 			return
 		}
 		defer out.Close()
-		io.Copy(out, file)
+		if _, err := io.Copy(out, file); err != nil {
+			os.Remove(dest)
+			writeErr(w, http.StatusInternalServerError, "save failed")
+			return
+		}
 
 		writeJSON(w, http.StatusOK, map[string]string{
 			"url": fmt.Sprintf("%s/avatars/%s", baseURL, filename),
 		})
 	}
+}
+
+var allowedImageExt = map[string]bool{
+	".jpg": true, ".jpeg": true, ".png": true,
+	".gif": true, ".webp": true,
+}
+
+// validateMIME reads the first 512 bytes to detect the actual content type and
+// verifies it matches the declared file extension. The read position is reset.
+func validateMIME(f io.ReadSeeker, ext string) error {
+	buf := make([]byte, 512)
+	n, _ := f.Read(buf)
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("file read error")
+	}
+	if !imageMIMEMatches(buf[:n], ext) {
+		return fmt.Errorf("file content does not match declared type")
+	}
+	return nil
+}
+
+func imageMIMEMatches(buf []byte, ext string) bool {
+	// WebP: RIFF????WEBP — not in Go's DetectContentType
+	if ext == ".webp" {
+		return len(buf) >= 12 &&
+			string(buf[0:4]) == "RIFF" &&
+			string(buf[8:12]) == "WEBP"
+	}
+	detected := http.DetectContentType(buf)
+	expected := map[string]string{
+		".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+		".png": "image/png", ".gif": "image/gif",
+	}[ext]
+	return expected != "" && strings.HasPrefix(detected, expected)
 }

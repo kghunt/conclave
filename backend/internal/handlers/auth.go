@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -13,14 +14,21 @@ import (
 )
 
 type AuthHandler struct {
-	auth        *auth.Service
-	db          *pgxpool.Pool
-	base        string
-	frontendURL string
+	auth          *auth.Service
+	db            *pgxpool.Pool
+	base          string
+	frontendURL   string
+	secureCookies bool
 }
 
 func NewAuth(a *auth.Service, db *pgxpool.Pool, baseURL, frontendURL string) *AuthHandler {
-	return &AuthHandler{auth: a, db: db, base: baseURL, frontendURL: frontendURL}
+	return &AuthHandler{
+		auth:          a,
+		db:            db,
+		base:          baseURL,
+		frontendURL:   frontendURL,
+		secureCookies: strings.HasPrefix(baseURL, "https://"),
+	}
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -30,6 +38,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Value:    state,
 		MaxAge:   300,
 		HttpOnly: true,
+		Secure:   h.secureCookies,
 		SameSite: http.SameSiteLaxMode,
 	})
 	http.Redirect(w, r, h.auth.AuthURL(state), http.StatusTemporaryRedirect)
@@ -65,6 +74,7 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		MaxAge:   int((30 * 24 * time.Hour).Seconds()),
 		HttpOnly: true,
+		Secure:   h.secureCookies,
 		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
 	})

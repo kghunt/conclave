@@ -150,8 +150,12 @@ func (h *ServersHandler) UploadIcon(w http.ResponseWriter, r *http.Request, avat
 	defer file.Close()
 
 	ext := strings.ToLower(filepath.Ext(header.Filename))
-	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".gif" && ext != ".webp" {
+	if !allowedImageExt[ext] {
 		writeErr(w, http.StatusBadRequest, "unsupported file type")
+		return
+	}
+	if err := validateMIME(file, ext); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -163,7 +167,11 @@ func (h *ServersHandler) UploadIcon(w http.ResponseWriter, r *http.Request, avat
 		return
 	}
 	defer out.Close()
-	io.Copy(out, file)
+	if _, err := io.Copy(out, file); err != nil {
+		os.Remove(dest)
+		writeErr(w, http.StatusInternalServerError, "save failed")
+		return
+	}
 
 	iconURL := fmt.Sprintf("%s/avatars/%s", baseURL, filename)
 	h.db.Exec(r.Context(), `UPDATE servers SET icon_url = $1 WHERE id = $2`, iconURL, serverID)
@@ -236,25 +244,28 @@ func (h *ServersHandler) JoinByInvite(w http.ResponseWriter, r *http.Request) {
 	code := chi.URLParam(r, "code")
 	userID := middleware.UserID(r)
 
+	// Atomically increment use_count only when within the limit — prevents TOCTOU race.
 	var serverID string
-	var maxUses *int
-	var useCount int
 	err := h.db.QueryRow(r.Context(), `
-		SELECT server_id, max_uses, use_count FROM invites
-		WHERE code = $1 AND (expires_at IS NULL OR expires_at > NOW())
-	`, code).Scan(&serverID, &maxUses, &useCount)
+		UPDATE invites SET use_count = use_count + 1
+		WHERE code = $1
+		  AND (expires_at IS NULL OR expires_at > NOW())
+		  AND (max_uses IS NULL OR use_count < max_uses)
+		RETURNING server_id
+	`, code).Scan(&serverID)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "invite not found or expired")
-		return
-	}
-	if maxUses != nil && useCount >= *maxUses {
-		writeErr(w, http.StatusGone, "invite has reached its use limit")
+		// Either not found, expired, or use limit reached — distinguish via a read.
+		var exists bool
+		h.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM invites WHERE code = $1 AND (expires_at IS NULL OR expires_at > NOW()))`, code).Scan(&exists)
+		if !exists {
+			writeErr(w, http.StatusNotFound, "invite not found or expired")
+		} else {
+			writeErr(w, http.StatusGone, "invite has reached its use limit")
+		}
 		return
 	}
 
-	h.db.Exec(r.Context(), `UPDATE invites SET use_count = use_count + 1 WHERE code = $1`, code)
 	h.db.Exec(r.Context(), `INSERT INTO server_members (server_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, serverID, userID)
-
 	writeJSON(w, http.StatusOK, map[string]string{"server_id": serverID})
 }
 
@@ -270,7 +281,7 @@ func (h *ServersHandler) Members(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.db.Query(r.Context(), `
-		SELECT u.id, u.email, u.display_name, u.bio, u.avatar_url, u.created_at, u.updated_at, sm.role, sm.joined_at
+		SELECT u.id, u.display_name, u.bio, u.avatar_url, u.created_at, u.updated_at, sm.role, sm.joined_at
 		FROM server_members sm JOIN users u ON u.id = sm.user_id
 		WHERE sm.server_id = $1
 		ORDER BY sm.role, u.display_name
@@ -285,7 +296,7 @@ func (h *ServersHandler) Members(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var m models.ServerMember
 		m.User = &models.User{}
-		if err := rows.Scan(&m.User.ID, &m.User.Email, &m.User.DisplayName, &m.User.Bio, &m.User.AvatarURL, &m.User.CreatedAt, &m.User.UpdatedAt, &m.Role, &m.JoinedAt); err != nil {
+		if err := rows.Scan(&m.User.ID, &m.User.DisplayName, &m.User.Bio, &m.User.AvatarURL, &m.User.CreatedAt, &m.User.UpdatedAt, &m.Role, &m.JoinedAt); err != nil {
 			continue
 		}
 		members = append(members, m)

@@ -106,7 +106,15 @@ func (h *ChannelsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 func (h *ChannelsHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 	channelID := chi.URLParam(r, "channelID")
+	serverID := chi.URLParam(r, "serverID")
 	userID := middleware.UserID(r)
+
+	var isMember bool
+	h.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM server_members WHERE server_id=$1 AND user_id=$2)`, serverID, userID).Scan(&isMember)
+	if !isMember {
+		writeErr(w, http.StatusForbidden, "not a member")
+		return
+	}
 
 	h.db.Exec(r.Context(), `
 		INSERT INTO read_cursors (user_id, channel_id, last_read)

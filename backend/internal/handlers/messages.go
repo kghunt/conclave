@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -32,17 +33,29 @@ func (h *MessagesHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	before := r.URL.Query().Get("before")
+	var beforeTime *time.Time
+	if raw := r.URL.Query().Get("before"); raw != "" {
+		t, err := time.Parse(time.RFC3339Nano, raw)
+		if err != nil {
+			t, err = time.Parse(time.RFC3339, raw)
+		}
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid 'before' parameter: expected RFC3339 timestamp")
+			return
+		}
+		beforeTime = &t
+	}
+
 	var rows interface{ Next() bool; Scan(...any) error; Close() }
 	var err error
-	if before != "" {
+	if beforeTime != nil {
 		rows, err = h.db.Query(r.Context(), `
 			SELECT m.id, m.channel_id, m.content, m.edited_at, m.created_at,
 			       u.id, u.display_name, u.bio, u.avatar_url
 			FROM messages m JOIN users u ON u.id = m.author_id
 			WHERE m.channel_id = $1 AND m.created_at < $2
 			ORDER BY m.created_at DESC LIMIT 50
-		`, channelID, before)
+		`, channelID, *beforeTime)
 	} else {
 		rows, err = h.db.Query(r.Context(), `
 			SELECT m.id, m.channel_id, m.content, m.edited_at, m.created_at,
@@ -94,6 +107,10 @@ func (h *MessagesHandler) Send(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "content required")
 		return
 	}
+	if len(body.Content) > 4000 {
+		writeErr(w, http.StatusBadRequest, "message too long (max 4000 characters)")
+		return
+	}
 
 	var m models.Message
 	m.Author = &models.User{}
@@ -130,6 +147,10 @@ func (h *MessagesHandler) Edit(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := decodeJSON(r, &body); err != nil || body.Content == "" {
 		writeErr(w, http.StatusBadRequest, "content required")
+		return
+	}
+	if len(body.Content) > 4000 {
+		writeErr(w, http.StatusBadRequest, "message too long (max 4000 characters)")
 		return
 	}
 

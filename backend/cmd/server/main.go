@@ -50,7 +50,7 @@ func main() {
 	channelsH := handlers.NewChannels(pool)
 	messagesH := handlers.NewMessages(pool, hub)
 	dmsH := handlers.NewDMs(pool, hub)
-	wsH := handlers.NewWS(hub, authSvc)
+	wsH := handlers.NewWS(hub, authSvc, pool, cfg.BaseURL, cfg.FrontendURL)
 
 	r := chi.NewRouter()
 	r.Use(chimiddleware.Logger)
@@ -132,7 +132,7 @@ func main() {
 	}
 
 	log.Printf("listening on :%s", cfg.Port)
-	http.ListenAndServe(":"+cfg.Port, r)
+	log.Fatal(http.ListenAndServe(":"+cfg.Port, r))
 }
 
 func spaHandler(staticDir string) http.HandlerFunc {

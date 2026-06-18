@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"crypto/subtle"
 	"net/http"
 	"strconv"
 
@@ -24,7 +25,7 @@ func (h *AdminHandler) isAdmin(r *http.Request) bool {
 	userID := middleware.UserID(r)
 	var email string
 	h.db.QueryRow(r.Context(), `SELECT email FROM users WHERE id = $1`, userID).Scan(&email)
-	return email == h.instanceAdminEmail
+	return subtle.ConstantTimeCompare([]byte(email), []byte(h.instanceAdminEmail)) == 1
 }
 
 func (h *AdminHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
@@ -93,7 +94,6 @@ func (h *AdminHandler) RunRetention(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "retention job started"})
 }
 
-// IsInstanceAdmin returns true if the given email matches the configured admin email.
 func (h *AdminHandler) IsInstanceAdmin(email string) bool {
-	return h.instanceAdminEmail != "" && email == h.instanceAdminEmail
+	return h.instanceAdminEmail != "" && subtle.ConstantTimeCompare([]byte(email), []byte(h.instanceAdminEmail)) == 1
 }
