@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import type { User, Server, Channel, DMConversation, FriendEntry, InstanceConfig, ServerMember } from './api';
+import type { User, Server, Channel, DMConversation, FriendEntry, InstanceConfig, ServerMember, VoicePeer } from './api';
 
 export const currentUser = writable<User | null>(null);
 export const servers = writable<Server[]>([]);
@@ -17,3 +17,4 @@ export const serverMembers = writable<ServerMember[]>([]);
 export const mentionedChannels = writable<Set<string>>(new Set());
 export const presenceMap = writable<Record<string, string>>({}); // userId → 'online'|'away'|'offline'
 export const pendingJoinRequests = writable<import('./api').JoinRequest[]>([]); // pending join requests for current space
+export const voiceParticipants = writable<Record<string, VoicePeer[]>>({}); // channelId → current voice participants

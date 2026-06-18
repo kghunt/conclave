@@ -16,7 +16,11 @@ export type WSEvent =
 	| { type: 'member.kicked'; payload: { server_id: string } }
 	| { type: 'member.banned'; payload: { server_id: string } }
 	| { type: 'join_request.new'; payload: { request_id: string; server_id: string; user: import('./api').User } }
-	| { type: 'join_request.reviewed'; payload: { server_id: string; action: string } };
+	| { type: 'join_request.reviewed'; payload: { server_id: string; action: string } }
+	| { type: 'voice.state'; payload: { channel_id: string; peers: import('./api').VoicePeer[] } }
+	| { type: 'voice.joined'; payload: { channel_id: string; user: import('./api').VoicePeer } }
+	| { type: 'voice.left'; payload: { channel_id: string; user_id: string } }
+	| { type: 'voice.signal'; payload: { channel_id: string; from: string; signal: RTCSessionDescriptionInit | RTCIceCandidateInit } };
 
 type Handler = (event: WSEvent) => void;
 

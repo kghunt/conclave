@@ -43,9 +43,16 @@ type Channel struct {
 	ServerID    string    `json:"server_id"`
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
+	Type        string    `json:"type"` // "text" | "voice"
 	Position    int       `json:"position"`
 	CreatedAt   time.Time `json:"created_at"`
 	UnreadCount int       `json:"unread_count,omitempty"`
+}
+
+type VoicePeer struct {
+	UserID      string `json:"user_id"`
+	DisplayName string `json:"display_name"`
+	AvatarURL   string `json:"avatar_url"`
 }
 
 type MessageReply struct {

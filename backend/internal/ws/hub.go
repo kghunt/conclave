@@ -38,6 +38,9 @@ type Hub struct {
 	userConns    map[string]int    // userId → active connection count
 	userPresence map[string]string // userId → "online"|"away" (absent = offline)
 	PresenceChanges chan PresenceChange
+
+	voiceRooms map[string]map[string]*Client // channelID → userID → *Client
+	voiceMu    sync.RWMutex
 }
 
 type roomMessage struct {
@@ -55,6 +58,7 @@ func NewHub() *Hub {
 		userConns:       make(map[string]int),
 		userPresence:    make(map[string]string),
 		PresenceChanges: make(chan PresenceChange, 256),
+		voiceRooms:      make(map[string]map[string]*Client),
 	}
 }
 
@@ -92,6 +96,24 @@ func (h *Hub) Run() {
 			h.mu.Unlock()
 			if emitOffline {
 				select { case h.PresenceChanges <- PresenceChange{c.userID, "offline"}: default: }
+			}
+			// Clean up voice rooms on disconnect
+			h.voiceMu.Lock()
+			var leftChannels []string
+			for channelID, peers := range h.voiceRooms {
+				if _, ok := peers[c.userID]; ok {
+					delete(peers, c.userID)
+					if len(peers) == 0 {
+						delete(h.voiceRooms, channelID)
+					}
+					leftChannels = append(leftChannels, channelID)
+				}
+			}
+			h.voiceMu.Unlock()
+			for _, channelID := range leftChannels {
+				inner, _ := json.Marshal(map[string]string{"channel_id": channelID, "user_id": c.userID})
+				data, _ := json.Marshal(Event{Type: "voice.left", Payload: inner})
+				select { case h.broadcast <- roomMessage{room: "channel:" + channelID, payload: data}: default: }
 			}
 
 		case msg := <-h.broadcast:
@@ -165,7 +187,7 @@ func (c *Client) ReadPump(onEvent func(c *Client, event Event)) {
 		c.hub.unregister <- c
 		c.conn.Close()
 	}()
-	c.conn.SetReadLimit(4096)
+	c.conn.SetReadLimit(65536)
 	for {
 		_, msg, err := c.conn.ReadMessage()
 		if err != nil {
@@ -180,6 +202,14 @@ func (c *Client) ReadPump(onEvent func(c *Client, event Event)) {
 }
 
 func (c *Client) UserID() string { return c.userID }
+
+func (c *Client) SendRaw(data []byte) {
+	select {
+	case c.send <- data:
+	default:
+		c.hub.unregister <- c
+	}
+}
 
 func (h *Hub) SetPresence(userID, status string) {
 	h.mu.Lock()
@@ -202,6 +232,77 @@ func (c *Client) HasRoom(room string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.rooms[room]
+}
+
+// VoiceJoin adds a client to a voice room and returns the existing peers' userIDs.
+func (h *Hub) VoiceJoin(channelID string, c *Client) []string {
+	h.voiceMu.Lock()
+	defer h.voiceMu.Unlock()
+	if h.voiceRooms[channelID] == nil {
+		h.voiceRooms[channelID] = make(map[string]*Client)
+	}
+	existing := make([]string, 0, len(h.voiceRooms[channelID]))
+	for uid := range h.voiceRooms[channelID] {
+		existing = append(existing, uid)
+	}
+	h.voiceRooms[channelID][c.userID] = c
+	return existing
+}
+
+// VoiceLeave removes a client from a voice room.
+func (h *Hub) VoiceLeave(channelID string, c *Client) {
+	h.voiceMu.Lock()
+	defer h.voiceMu.Unlock()
+	if peers, ok := h.voiceRooms[channelID]; ok {
+		delete(peers, c.userID)
+		if len(peers) == 0 {
+			delete(h.voiceRooms, channelID)
+		}
+	}
+}
+
+// VoicePeers returns a snapshot of userIDs currently in a voice channel.
+func (h *Hub) VoicePeers(channelID string) []string {
+	h.voiceMu.RLock()
+	defer h.voiceMu.RUnlock()
+	peers := h.voiceRooms[channelID]
+	out := make([]string, 0, len(peers))
+	for uid := range peers {
+		out = append(out, uid)
+	}
+	return out
+}
+
+// VoiceAllPeers returns a snapshot of all voice rooms: channelID → []userID.
+func (h *Hub) VoiceAllPeers() map[string][]string {
+	h.voiceMu.RLock()
+	defer h.voiceMu.RUnlock()
+	out := make(map[string][]string, len(h.voiceRooms))
+	for channelID, peers := range h.voiceRooms {
+		uids := make([]string, 0, len(peers))
+		for uid := range peers {
+			uids = append(uids, uid)
+		}
+		out[channelID] = uids
+	}
+	return out
+}
+
+// VoiceSendTo delivers a raw message directly to a specific user in a voice channel.
+func (h *Hub) VoiceSendTo(channelID, toUserID string, data []byte) bool {
+	h.voiceMu.RLock()
+	c, ok := h.voiceRooms[channelID][toUserID]
+	h.voiceMu.RUnlock()
+	if !ok {
+		return false
+	}
+	select {
+	case c.send <- data:
+		return true
+	default:
+		h.unregister <- c
+		return false
+	}
 }
 
 // BroadcastExcept sends to all clients in a room except the given one.

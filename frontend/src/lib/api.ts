@@ -49,8 +49,10 @@ export const api = {
 
 	// channels
 	listChannels: (serverId: string) => req<Channel[]>('GET', `/servers/${serverId}/channels`),
-	createChannel: (serverId: string, data: { name: string; description: string }) =>
+	createChannel: (serverId: string, data: { name: string; description: string; type?: 'text' | 'voice' }) =>
 		req<Channel>('POST', `/servers/${serverId}/channels`, data),
+	getVoiceState: (serverId: string) =>
+		req<Record<string, VoicePeer[]>>('GET', `/servers/${serverId}/voice`),
 	deleteChannel: (serverId: string, channelId: string) =>
 		req<void>('DELETE', `/servers/${serverId}/channels/${channelId}`),
 	markRead: (serverId: string, channelId: string) =>
@@ -219,9 +221,16 @@ export interface Channel {
 	server_id: string;
 	name: string;
 	description: string;
+	type: 'text' | 'voice';
 	position: number;
 	unread_count: number;
 	created_at: string;
+}
+
+export interface VoicePeer {
+	user_id: string;
+	display_name: string;
+	avatar_url: string;
 }
 
 export interface MessageReply {
