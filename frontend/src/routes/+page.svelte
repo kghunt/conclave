@@ -14,19 +14,34 @@
 	let dmMessages: DirectMessage[] = $state([]);
 	let input = $state('');
 	let showMembers = $state(true);
+	let isMobile = $state(false);
 
-	onMount(async () => {
-		const s = await api.listServers();
-		servers.set(s ?? []);
-		const convs = await api.listConversations();
-		dmConversations.set(convs ?? []);
+	onMount(() => {
+		const mq = window.matchMedia('(max-width: 767px)');
+		isMobile = mq.matches;
+		const handler = (e: MediaQueryListEvent) => { isMobile = e.matches; };
+		mq.addEventListener('change', handler);
+
+		(async () => {
+			const s = await api.listServers();
+			servers.set(s ?? []);
+			const convs = await api.listConversations();
+			dmConversations.set(convs ?? []);
+		})();
+
+		return () => mq.removeEventListener('change', handler);
 	});
+
+	// On mobile: going back from chat clears the active channel/DM
+	function mobileBack() {
+		activeChannel.set(null);
+		activeDM.set(null);
+	}
 
 	// Load channels when active server changes; auto-select first channel
 	$effect(() => {
 		const srv = $activeServer;
 		if (!srv) return;
-		// Capture srv.id so the async callback doesn't close over a stale store value
 		const id = srv.id;
 		api.listChannels(id).then((ch) => {
 			channels.set(ch ?? []);
@@ -108,7 +123,6 @@
 		const start = el.selectionStart ?? input.length;
 		const end = el.selectionEnd ?? input.length;
 		input = input.slice(0, start) + emoji + input.slice(end);
-		// restore cursor after the inserted emoji
 		setTimeout(() => {
 			el.focus();
 			el.selectionStart = el.selectionEnd = start + emoji.length;
@@ -155,75 +169,91 @@
 			send();
 		}
 	}
+
+	// Whether the chat panel should be visible
+	let showChat = $derived(!isMobile || !!$activeChannel || !!$activeDM);
+	// Whether the sidebar should be visible
+	let showSidebar = $derived(!isMobile || (!$activeChannel && !$activeDM));
 </script>
 
 <div class="app">
 	<ServerList />
-	<ChannelSidebar />
 
-	<main class="main">
-		<header>
-			<span class="channel-name">
-				{#if $activeChannel}# {$activeChannel.name}{/if}
-				{#if $activeDM}@ {$activeDM.other_user.display_name}{/if}
-			</span>
-			<div class="header-actions">
-				{#if $activeChannel}
-					<button onclick={() => (showMembers = !showMembers)} class="icon-btn" title="Members">
-						&#128101;
+	{#if showSidebar}
+		<ChannelSidebar />
+	{/if}
+
+	{#if showChat}
+		<main class="main">
+			<header>
+				{#if isMobile}
+					<button class="back-btn" onclick={mobileBack}>
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+						{$activeDM ? 'Messages' : ($activeServer?.name ?? 'Channels')}
 					</button>
 				{/if}
-			</div>
-		</header>
-
-		<MessageFeed
-			messages={$activeChannel ? messages : dmMessages}
-			isDM={!!$activeDM}
-		/>
-
-		<div class="input-area">
-			<div class="input-actions">
-				<button
-					class="action-icon"
-					disabled={(!$activeChannel && !$activeDM) || uploading}
-					onclick={() => fileInput.click()}
-					title="Upload image"
-				>
-					{#if uploading}
-						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-					{:else}
-						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+				<span class="channel-name">
+					{#if $activeChannel}# {$activeChannel.name}{/if}
+					{#if $activeDM}@ {$activeDM.other_user.display_name}{/if}
+				</span>
+				<div class="header-actions">
+					{#if $activeChannel && !isMobile}
+						<button onclick={() => (showMembers = !showMembers)} class="icon-btn" title="Members">
+							&#128101;
+						</button>
 					{/if}
-				</button>
-				<button
-					class="action-icon"
-					disabled={!$activeChannel && !$activeDM}
-					onclick={() => (showEmoji = !showEmoji)}
-					title="Emoji"
-					class:active={showEmoji}
-				>
-					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 13s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
-				</button>
-				{#if showEmoji}
-					<EmojiPicker onSelect={insertEmoji} onClose={() => (showEmoji = false)} />
-				{/if}
-			</div>
-			<input bind:this={fileInput} type="file" accept="image/*" style="display:none"
-				onchange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) uploadAndSend(f); }} />
-			<textarea
-				bind:this={textarea}
-				bind:value={input}
-				onkeydown={onKeydown}
-				onpaste={onPaste}
-				placeholder={$activeChannel ? `Message #${$activeChannel.name}` : $activeDM ? `Message ${$activeDM.other_user.display_name}` : 'Select a channel'}
-				rows="1"
-				disabled={(!$activeChannel && !$activeDM) || uploading}
-			></textarea>
-		</div>
-	</main>
+				</div>
+			</header>
 
-	{#if showMembers && $activeChannel && $activeServer}
-		<MemberList serverId={$activeServer.id} />
+			<MessageFeed
+				messages={$activeChannel ? messages : dmMessages}
+				isDM={!!$activeDM}
+			/>
+
+			<div class="input-area">
+				<div class="input-actions">
+					<button
+						class="action-icon"
+						disabled={(!$activeChannel && !$activeDM) || uploading}
+						onclick={() => fileInput.click()}
+						title="Upload image"
+					>
+						{#if uploading}
+							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+						{:else}
+							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+						{/if}
+					</button>
+					<button
+						class="action-icon"
+						disabled={!$activeChannel && !$activeDM}
+						onclick={() => (showEmoji = !showEmoji)}
+						title="Emoji"
+						class:active={showEmoji}
+					>
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 13s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+					</button>
+					{#if showEmoji}
+						<EmojiPicker onSelect={insertEmoji} onClose={() => (showEmoji = false)} />
+					{/if}
+				</div>
+				<input bind:this={fileInput} type="file" accept="image/*" style="display:none"
+					onchange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) uploadAndSend(f); }} />
+				<textarea
+					bind:this={textarea}
+					bind:value={input}
+					onkeydown={onKeydown}
+					onpaste={onPaste}
+					placeholder={$activeChannel ? `Message #${$activeChannel.name}` : $activeDM ? `Message ${$activeDM.other_user.display_name}` : 'Select a channel'}
+					rows="1"
+					disabled={(!$activeChannel && !$activeDM) || uploading}
+				></textarea>
+			</div>
+		</main>
+
+		{#if showMembers && $activeChannel && $activeServer && !isMobile}
+			<MemberList serverId={$activeServer.id} />
+		{/if}
 	{/if}
 </div>
 
@@ -233,11 +263,11 @@
 
 <style>
 	:global(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
-	:global(body) { background: #111113; color: #f0eff4; font-family: system-ui, sans-serif; }
+	:global(body) { background: #111113; color: #f0eff4; font-family: system-ui, sans-serif; overflow: hidden; }
 
 	.app {
 		display: flex;
-		height: 100vh;
+		height: 100dvh;
 		overflow: hidden;
 	}
 	.main {
@@ -245,22 +275,43 @@
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
+		min-width: 0;
 	}
 	header {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
+		gap: 0.5rem;
 		padding: 0 1rem;
 		height: 48px;
 		border-bottom: 1px solid #0e0e10;
 		background: #1c1c21;
 		flex-shrink: 0;
 	}
+	.back-btn {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		background: none;
+		border: none;
+		color: #e8541e;
+		cursor: pointer;
+		font-size: 0.875rem;
+		font-weight: 600;
+		padding: 0.375rem 0.5rem;
+		border-radius: 4px;
+		white-space: nowrap;
+		flex-shrink: 0;
+	}
+	.back-btn:hover { background: rgba(232,84,30,0.1); }
 	.channel-name {
+		flex: 1;
 		font-weight: 600;
 		color: #f0eff4;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
-	.header-actions { display: flex; gap: 0.5rem; }
+	.header-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
 	.icon-btn {
 		background: none;
 		border: none;
@@ -313,4 +364,9 @@
 		font-family: inherit;
 	}
 	textarea:disabled { opacity: 0.5; cursor: not-allowed; }
+
+	@media (max-width: 767px) {
+		textarea { font-size: 16px; /* prevents iOS zoom on focus */ }
+		.input-area { padding: 0.5rem; }
+	}
 </style>

@@ -256,6 +256,11 @@
 		opacity: 0;
 		transition: opacity 0.1s;
 	}
+	@media (max-width: 767px) {
+		.msg-actions { opacity: 1; }
+		.action-btn { width: 32px; height: 32px; }
+		.message { padding: 0.25rem 0.75rem; padding-right: 5rem; }
+	}
 	.action-btn {
 		background: #222228;
 		border: 1px solid #2e2e38;
