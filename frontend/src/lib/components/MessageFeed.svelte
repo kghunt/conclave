@@ -79,14 +79,20 @@
 
 	function replyPreview(content: string): string {
 		if (isImageUrl(content.trim())) return '[image]';
+		if (isVideoUrl(content.trim())) return '[video]';
 		return content.length > 80 ? content.slice(0, 80) + '…' : content;
 	}
 
 	function isImageUrl(text: string): boolean {
 		const t = text.trim();
-		// Only render images from this instance's upload endpoint to prevent IP tracking via external images
 		return /^\/avatars\/[a-f0-9-]+\.(jpg|jpeg|png|gif|webp|svg)$/i.test(t) ||
 			/^https?:\/\/[^/]+\/avatars\/[a-f0-9-]+\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i.test(t);
+	}
+
+	function isVideoUrl(text: string): boolean {
+		const t = text.trim();
+		return /^\/avatars\/[a-f0-9-]+\.(mp4|webm|mov)$/i.test(t) ||
+			/^https?:\/\/[^/]+\/avatars\/[a-f0-9-]+\.(mp4|webm|mov)(\?.*)?$/i.test(t);
 	}
 
 	function startEdit(m: AnyMessage) {
@@ -169,6 +175,9 @@
 						<div class="edit-hint">Enter to save · Esc to cancel</div>
 					{:else if isImageUrl(msg.content)}
 						<img src={msg.content} alt="uploaded" class="msg-image" loading="lazy" />
+					{:else if isVideoUrl(msg.content)}
+						<!-- svelte-ignore a11y-media-has-caption -->
+						<video src={msg.content} class="msg-video" controls preload="metadata"></video>
 					{:else}
 						<p>{#each parseContent(msg.content) as part}{#if part.type === 'mention'}<span class="mention">{part.value}</span>{:else}{part.value}{/if}{/each}</p>
 					{/if}
@@ -187,6 +196,9 @@
 						<div class="edit-hint">Enter to save · Esc to cancel</div>
 					{:else if isImageUrl(msg.content)}
 						<img src={msg.content} alt="uploaded" class="msg-image" loading="lazy" />
+					{:else if isVideoUrl(msg.content)}
+						<!-- svelte-ignore a11y-media-has-caption -->
+						<video src={msg.content} class="msg-video" controls preload="metadata"></video>
 					{:else}
 						<p>{#each parseContent(msg.content) as part}{#if part.type === 'mention'}<span class="mention">{part.value}</span>{:else}{part.value}{/if}{/each}</p>
 					{/if}
@@ -310,6 +322,14 @@
 		cursor: pointer;
 	}
 	.msg-image:hover { opacity: 0.9; }
+	.msg-video {
+		max-width: min(480px, 100%);
+		max-height: 320px;
+		border-radius: 6px;
+		display: block;
+		margin-top: 0.25rem;
+		background: #000;
+	}
 	.edit-input {
 		width: 100%;
 		background: var(--bg-input);

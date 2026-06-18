@@ -192,11 +192,13 @@ export interface AdminSettings {
 	message_retention_days: string;
 	inactive_space_retention_days: string;
 	allow_user_space_creation?: string;
+	max_video_size_mb?: string;
 	[key: string]: string | undefined;
 }
 
 export interface InstanceConfig {
 	allow_user_space_creation: boolean;
+	max_video_size_mb: number;
 }
 
 export interface ServerDiscovery {

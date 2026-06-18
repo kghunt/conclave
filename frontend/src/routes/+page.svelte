@@ -36,7 +36,7 @@
 				api.listFriends(),
 				api.listFriendRequests(),
 				api.listFriendRequestsSent(),
-				api.getConfig().catch(() => ({ allow_user_space_creation: true }))
+				api.getConfig().catch(() => ({ allow_user_space_creation: true, max_video_size_mb: 50 }))
 			]);
 			servers.set(s ?? []);
 			dmConversations.set(convs ?? []);
@@ -329,7 +329,17 @@
 	}
 
 	async function uploadAndSend(file: File) {
-		if (!file.type.startsWith('image/')) return;
+		const isImage = file.type.startsWith('image/');
+		const isVideo = file.type.startsWith('video/');
+		if (!isImage && !isVideo) return;
+		if (isVideo) {
+			const maxMB = $instanceConfig.max_video_size_mb ?? 50;
+			if (maxMB === 0) { alert('Video uploads are disabled on this instance.'); return; }
+			if (file.size > maxMB * 1024 * 1024) {
+				alert(`Video is too large. Maximum size is ${maxMB}MB.`);
+				return;
+			}
+		}
 		uploading = true;
 		try {
 			const { url } = await api.uploadFile(file);
@@ -344,17 +354,19 @@
 	}
 
 	async function onPaste(e: ClipboardEvent) {
-		const image = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith('image/'));
-		if (!image) return;
+		const media = Array.from(e.clipboardData?.items ?? []).find(
+			(i) => i.type.startsWith('image/') || i.type.startsWith('video/')
+		);
+		if (!media) return;
 		e.preventDefault();
-		const file = image.getAsFile();
+		const file = media.getAsFile();
 		if (file) uploadAndSend(file);
 	}
 
 	// Gboard (Android) sends GIFs via beforeinput, not paste
 	function onBeforeInput(e: InputEvent) {
 		const file = e.dataTransfer?.files?.[0];
-		if (!file?.type.startsWith('image/')) return;
+		if (!file?.type.startsWith('image/') && !file?.type.startsWith('video/')) return;
 		e.preventDefault();
 		uploadAndSend(file);
 	}
@@ -491,7 +503,7 @@
 						class="action-icon"
 						disabled={(!$activeChannel && !$activeDM) || uploading}
 						onclick={() => fileInput.click()}
-						title="Upload image"
+						title="Upload image or video"
 					>
 						{#if uploading}
 							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
@@ -512,7 +524,7 @@
 						<EmojiPicker onSelect={insertEmoji} onClose={() => (showEmoji = false)} />
 					{/if}
 				</div>
-				<input bind:this={fileInput} type="file" accept="image/*" style="display:none"
+				<input bind:this={fileInput} type="file" accept="image/*,video/mp4,video/webm,video/quicktime" style="display:none"
 					onchange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) uploadAndSend(f); }} />
 				{#if showMentionPopup && mentionMatches.length > 0}
 					<div class="mention-popup">

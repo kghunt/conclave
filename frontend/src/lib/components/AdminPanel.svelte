@@ -153,6 +153,24 @@
 		</section>
 
 		<section>
+			<h3>Uploads</h3>
+			<div class="setting">
+				<label for="video-size">Max video upload size</label>
+				<div class="setting-row">
+					<input
+						id="video-size"
+						type="number"
+						min="0"
+						bind:value={settings.max_video_size_mb}
+						placeholder="50"
+					/>
+					<span class="unit">MB</span>
+				</div>
+				<p class="hint">Maximum size for video file uploads (mp4, webm, mov). Set to 0 to disable video uploads. Default is 50MB.</p>
+			</div>
+		</section>
+
+		<section>
 			<h3>Data Retention</h3>
 			<p class="hint">Set to 0 to keep data forever. Cleanup runs daily at startup.</p>
 

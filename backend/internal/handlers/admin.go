@@ -70,6 +70,7 @@ func (h *AdminHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 	intKeys := map[string]bool{
 		"message_retention_days":        true,
 		"inactive_space_retention_days": true,
+		"max_video_size_mb":             true,
 	}
 	themeKeys := map[string]bool{
 		"theme_accent": true, "theme_bg": true, "theme_sidebar": true,
@@ -205,8 +206,12 @@ func (h *AdminHandler) ListInstanceUsers(w http.ResponseWriter, r *http.Request)
 
 // GetConfig returns public instance-wide config flags (no auth required).
 func (h *AdminHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
-	var val string
-	h.db.QueryRow(r.Context(), `SELECT value FROM settings WHERE key = 'allow_user_space_creation'`).Scan(&val)
-	allowCreate := val != "false"
-	writeJSON(w, http.StatusOK, map[string]bool{"allow_user_space_creation": allowCreate})
+	var allowVal string
+	h.db.QueryRow(r.Context(), `SELECT value FROM settings WHERE key = 'allow_user_space_creation'`).Scan(&allowVal)
+	allowCreate := allowVal != "false"
+	videoLimit := videoSizeLimitMB(r.Context(), h.db)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"allow_user_space_creation": allowCreate,
+		"max_video_size_mb":         videoLimit,
+	})
 }
