@@ -15,3 +15,4 @@ export const friendRequestsSent = writable<FriendEntry[]>([]);
 export const instanceConfig = writable<InstanceConfig>({ allow_user_space_creation: true });
 export const serverMembers = writable<ServerMember[]>([]);
 export const mentionedChannels = writable<Set<string>>(new Set());
+export const presenceMap = writable<Record<string, string>>({}); // userId → 'online'|'away'|'offline'

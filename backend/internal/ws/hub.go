@@ -22,6 +22,11 @@ type Client struct {
 	mu     sync.Mutex
 }
 
+type PresenceChange struct {
+	UserID string
+	Status string // "online" | "away" | "offline"
+}
+
 type Hub struct {
 	clients    map[*Client]bool
 	rooms      map[string]map[*Client]bool // room -> clients
@@ -29,6 +34,10 @@ type Hub struct {
 	unregister chan *Client
 	broadcast  chan roomMessage
 	mu         sync.RWMutex
+
+	userConns    map[string]int    // userId → active connection count
+	userPresence map[string]string // userId → "online"|"away" (absent = offline)
+	PresenceChanges chan PresenceChange
 }
 
 type roomMessage struct {
@@ -38,11 +47,14 @@ type roomMessage struct {
 
 func NewHub() *Hub {
 	return &Hub{
-		clients:    make(map[*Client]bool),
-		rooms:      make(map[string]map[*Client]bool),
-		register:   make(chan *Client, 64),
-		unregister: make(chan *Client, 64),
-		broadcast:  make(chan roomMessage, 256),
+		clients:         make(map[*Client]bool),
+		rooms:           make(map[string]map[*Client]bool),
+		register:        make(chan *Client, 64),
+		unregister:      make(chan *Client, 64),
+		broadcast:       make(chan roomMessage, 256),
+		userConns:       make(map[string]int),
+		userPresence:    make(map[string]string),
+		PresenceChanges: make(chan PresenceChange, 256),
 	}
 }
 
@@ -52,18 +64,35 @@ func (h *Hub) Run() {
 		case c := <-h.register:
 			h.mu.Lock()
 			h.clients[c] = true
+			prev := h.userConns[c.userID]
+			h.userConns[c.userID]++
+			if prev == 0 {
+				h.userPresence[c.userID] = "online"
+			}
 			h.mu.Unlock()
+			if prev == 0 {
+				select { case h.PresenceChanges <- PresenceChange{c.userID, "online"}: default: }
+			}
 
 		case c := <-h.unregister:
 			h.mu.Lock()
+			emitOffline := false
 			if h.clients[c] {
 				delete(h.clients, c)
 				for room := range c.rooms {
 					delete(h.rooms[room], c)
 				}
 				close(c.send)
+				h.userConns[c.userID]--
+				if h.userConns[c.userID] == 0 {
+					delete(h.userPresence, c.userID)
+					emitOffline = true
+				}
 			}
 			h.mu.Unlock()
+			if emitOffline {
+				select { case h.PresenceChanges <- PresenceChange{c.userID, "offline"}: default: }
+			}
 
 		case msg := <-h.broadcast:
 			h.mu.RLock()
@@ -151,6 +180,23 @@ func (c *Client) ReadPump(onEvent func(c *Client, event Event)) {
 }
 
 func (c *Client) UserID() string { return c.userID }
+
+func (h *Hub) SetPresence(userID, status string) {
+	h.mu.Lock()
+	if h.userConns[userID] > 0 {
+		h.userPresence[userID] = status
+	}
+	h.mu.Unlock()
+}
+
+func (h *Hub) GetStatus(userID string) string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if s, ok := h.userPresence[userID]; ok {
+		return s
+	}
+	return "offline"
+}
 
 func (c *Client) HasRoom(room string) bool {
 	c.mu.Lock()

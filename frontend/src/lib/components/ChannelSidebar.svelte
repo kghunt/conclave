@@ -240,7 +240,7 @@
 			class:active={$activeDM?.id === conv.id}
 			onclick={() => { activeChannel.set(null); activeDM.set(conv); }}
 		>
-			<Avatar url={conv.other_user.avatar_url} name={conv.other_user.display_name} userId={conv.other_user.id} size={20} />
+			<Avatar url={conv.other_user.avatar_url} name={conv.other_user.display_name} userId={conv.other_user.id} size={20} showPresence />
 			{conv.other_user.display_name}
 		</button>
 	{/each}
@@ -316,7 +316,7 @@
 	<div class="user-bar">
 		{#if $currentUser}
 			<button class="user-info" onclick={() => showProfileModal.set(true)} title="Edit profile">
-				<Avatar url={$currentUser.avatar_url} name={$currentUser.display_name} userId={$currentUser.id} size={32} />
+				<Avatar url={$currentUser.avatar_url} name={$currentUser.display_name} userId={$currentUser.id} size={32} showPresence />
 				<span class="username">{$currentUser.display_name}</span>
 			</button>
 			{#if pushSupported}

@@ -11,7 +11,8 @@ export type WSEvent =
 	| { type: 'member.leave'; payload: { server_id: string; user_id: string } }
 	| { type: 'friend.accepted'; payload: { id: string; display_name: string; avatar_url: string } }
 	| { type: 'mention.new'; payload: import('./api').Message }
-	| { type: 'typing'; payload: { user_id: string; display_name: string; room: string } };
+	| { type: 'typing'; payload: { user_id: string; display_name: string; room: string } }
+	| { type: 'presence.update'; payload: { user_id: string; status: string } };
 
 type Handler = (event: WSEvent) => void;
 
@@ -19,6 +20,7 @@ class SocketClient {
 	private ws: WebSocket | null = null;
 	private handlers = new Set<Handler>();
 	private rooms = new Set<string>();
+	private roomRefs = new Map<string, number>();
 	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 	connected = writable(false);
@@ -54,13 +56,23 @@ class SocketClient {
 	}
 
 	subscribe(room: string) {
-		this.rooms.add(room);
-		this.sendSubscribe(room);
+		const count = (this.roomRefs.get(room) ?? 0) + 1;
+		this.roomRefs.set(room, count);
+		if (count === 1) {
+			this.rooms.add(room);
+			this.sendSubscribe(room);
+		}
 	}
 
 	unsubscribe(room: string) {
-		this.rooms.delete(room);
-		this.ws?.send(JSON.stringify({ type: 'unsubscribe', payload: { room } }));
+		const count = (this.roomRefs.get(room) ?? 0) - 1;
+		if (count <= 0) {
+			this.roomRefs.delete(room);
+			this.rooms.delete(room);
+			this.ws?.send(JSON.stringify({ type: 'unsubscribe', payload: { room } }));
+		} else {
+			this.roomRefs.set(room, count);
+		}
 	}
 
 	on(handler: Handler) {

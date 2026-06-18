@@ -53,6 +53,7 @@ func main() {
 	messagesH := handlers.NewMessages(pool, hub, pushH)
 	dmsH := handlers.NewDMs(pool, hub, pushH)
 	wsH := handlers.NewWS(hub, authSvc, pool, cfg.BaseURL, cfg.FrontendURL)
+	go wsH.RunPresenceBroadcaster()
 
 	r := chi.NewRouter()
 	r.Use(chimiddleware.Logger)
@@ -89,6 +90,7 @@ func main() {
 		// servers
 		r.Get("/api/servers", serversH.List)
 		r.Get("/api/servers/discover", serversH.Discover)
+		r.Get("/api/servers/{serverID}/presence", serversH.Presence)
 		r.Post("/api/servers", serversH.Create)
 		r.Get("/api/servers/{serverID}", serversH.Get)
 		r.Patch("/api/servers/{serverID}", serversH.Update)

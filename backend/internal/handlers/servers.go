@@ -454,6 +454,33 @@ type serverDiscovery struct {
 	IsMember    bool   `json:"is_member"`
 }
 
+func (h *ServersHandler) Presence(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+	userID := middleware.UserID(r)
+
+	var isMember bool
+	h.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM server_members WHERE server_id=$1 AND user_id=$2)`, serverID, userID).Scan(&isMember)
+	if !isMember {
+		writeErr(w, http.StatusForbidden, "not a member")
+		return
+	}
+
+	rows, err := h.db.Query(r.Context(), `SELECT user_id FROM server_members WHERE server_id = $1`, serverID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	defer rows.Close()
+
+	result := map[string]string{}
+	for rows.Next() {
+		var uid string
+		rows.Scan(&uid)
+		result[uid] = h.hub.GetStatus(uid)
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (h *ServersHandler) Discover(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r)
 	q := r.URL.Query().Get("q")
