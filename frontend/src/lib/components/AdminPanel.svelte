@@ -191,6 +191,15 @@
 				</div>
 				<p class="hint">Deletes spaces with no message activity for this many days.</p>
 			</div>
+
+			<div class="retention-run">
+				<button class="run-btn" onclick={runNow} disabled={running}>
+					{running ? 'Running…' : 'Run cleanup now'}
+				</button>
+				{#if runStatus}
+					<span class="run-status">{runStatus}</span>
+				{/if}
+			</div>
 		</section>
 
 		<section>
@@ -260,20 +269,10 @@
 		</section>
 
 		<div class="actions">
-			<div class="left">
-				<button class="run-btn" onclick={runNow} disabled={running}>
-					{running ? 'Running…' : 'Run cleanup now'}
-				</button>
-				{#if runStatus}
-					<span class="run-status">{runStatus}</span>
-				{/if}
-			</div>
-			<div class="right">
-				<button class="cancel-btn" onclick={onclose}>Cancel</button>
-				<button class="save-btn" onclick={save} disabled={saving}>
-					{saving ? 'Saving…' : 'Save'}
-				</button>
-			</div>
+			<button class="cancel-btn" onclick={onclose}>Cancel</button>
+			<button class="save-btn" onclick={save} disabled={saving}>
+				{saving ? 'Saving…' : 'Save'}
+			</button>
 		</div>
 	</div>
 </div>
@@ -456,11 +455,16 @@
 	.actions {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
+		justify-content: flex-end;
 		padding: 1rem 1.5rem;
 		gap: 0.75rem;
 	}
-	.left, .right { display: flex; align-items: center; gap: 0.75rem; }
+	.retention-run {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		margin-top: 1rem;
+	}
 	.run-btn {
 		background: var(--bg-input);
 		border: 1px solid var(--border);
