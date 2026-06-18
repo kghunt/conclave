@@ -60,6 +60,18 @@ func (h *DMsHandler) GetOrCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var areFriends bool
+	h.db.QueryRow(r.Context(), `
+		SELECT EXISTS(
+			SELECT 1 FROM friendships
+			WHERE (user_id = $1 AND friend_id = $2)
+			   OR (user_id = $2 AND friend_id = $1)
+		)`, userID, otherID).Scan(&areFriends)
+	if !areFriends {
+		writeErr(w, http.StatusForbidden, "you can only DM friends")
+		return
+	}
+
 	u1, u2 := userID, otherID
 	if u1 > u2 {
 		u1, u2 = u2, u1
