@@ -86,6 +86,7 @@ func main() {
 		r.Get("/api/users/me", usersH.Me)
 		r.Patch("/api/users/me", usersH.UpdateMe)
 		r.Post("/api/users/me/avatar", usersH.UploadAvatar)
+		r.Get("/api/users/search", friendsH.SearchUsers)
 		r.Get("/api/users/{userID}", usersH.GetUser)
 
 		// servers
@@ -150,8 +151,6 @@ func main() {
 		r.Post("/api/friends/request/{userID}", friendsH.SendRequest)
 		r.Post("/api/friends/accept/{userID}", friendsH.Accept)
 		r.Delete("/api/friends/{userID}", friendsH.Remove)
-		r.Get("/api/users/search", friendsH.SearchUsers)
-
 		// push notifications
 		r.Get("/api/push/key", pushH.GetPublicKey)
 		r.Post("/api/push/subscribe", pushH.Subscribe)

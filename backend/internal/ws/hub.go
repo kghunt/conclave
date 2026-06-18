@@ -312,9 +312,12 @@ func (h *Hub) BroadcastExcept(room string, exclude *Client, event Event) {
 		return
 	}
 	h.mu.RLock()
-	clients := h.rooms[room]
+	snapshot := make([]*Client, 0, len(h.rooms[room]))
+	for c := range h.rooms[room] {
+		snapshot = append(snapshot, c)
+	}
 	h.mu.RUnlock()
-	for c := range clients {
+	for _, c := range snapshot {
 		if c == exclude {
 			continue
 		}

@@ -14,16 +14,24 @@
 		$serverMembers.map(m => m.user.display_name.replace(/\s+/g, '_').toLowerCase())
 	));
 
-	function renderContent(text: string): string {
-		const escaped = text
-			.replace(/&/g, '&amp;')
-			.replace(/</g, '&lt;')
-			.replace(/>/g, '&gt;');
-		return escaped.replace(/@(\w+)/g, (match, handle) =>
-			memberHandles.has(handle.toLowerCase())
-				? `<span class="mention">${match}</span>`
-				: match
-		);
+	type ContentPart = { type: 'text' | 'mention'; value: string };
+
+	function parseContent(text: string): ContentPart[] {
+		const parts: ContentPart[] = [];
+		let last = 0;
+		const re = /@(\w+)/g;
+		let m: RegExpExecArray | null;
+		while ((m = re.exec(text)) !== null) {
+			if (m.index > last) parts.push({ type: 'text', value: text.slice(last, m.index) });
+			parts.push(
+				memberHandles.has(m[1].toLowerCase())
+					? { type: 'mention', value: m[0] }
+					: { type: 'text', value: m[0] }
+			);
+			last = m.index + m[0].length;
+		}
+		if (last < text.length) parts.push({ type: 'text', value: text.slice(last) });
+		return parts;
 	}
 
 	let {
@@ -76,8 +84,9 @@
 
 	function isImageUrl(text: string): boolean {
 		const t = text.trim();
-		return /^https?:\/\/\S+\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i.test(t) ||
-			/^\/avatars\/[a-f0-9-]+\.(jpg|jpeg|png|gif|webp|svg)$/i.test(t);
+		// Only render images from this instance's upload endpoint to prevent IP tracking via external images
+		return /^\/avatars\/[a-f0-9-]+\.(jpg|jpeg|png|gif|webp|svg)$/i.test(t) ||
+			/^https?:\/\/[^/]+\/avatars\/[a-f0-9-]+\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i.test(t);
 	}
 
 	function startEdit(m: AnyMessage) {
@@ -161,7 +170,7 @@
 					{:else if isImageUrl(msg.content)}
 						<img src={msg.content} alt="uploaded" class="msg-image" loading="lazy" />
 					{:else}
-						<p>{@html renderContent(msg.content)}</p>
+						<p>{#each parseContent(msg.content) as part}{#if part.type === 'mention'}<span class="mention">{part.value}</span>{:else}{part.value}{/if}{/each}</p>
 					{/if}
 				</div>
 			{:else}
@@ -179,7 +188,7 @@
 					{:else if isImageUrl(msg.content)}
 						<img src={msg.content} alt="uploaded" class="msg-image" loading="lazy" />
 					{:else}
-						<p>{@html renderContent(msg.content)}</p>
+						<p>{#each parseContent(msg.content) as part}{#if part.type === 'mention'}<span class="mention">{part.value}</span>{:else}{part.value}{/if}{/each}</p>
 					{/if}
 				</div>
 			{/if}

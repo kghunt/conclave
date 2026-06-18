@@ -75,6 +75,10 @@ func (h *ChannelsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name required")
 		return
 	}
+	if len(body.Name) > 100 {
+		writeErr(w, http.StatusBadRequest, "channel name too long (max 100 characters)")
+		return
+	}
 	if body.Type != "voice" && body.Type != "threads" {
 		body.Type = "text"
 	}
@@ -199,9 +203,14 @@ func (h *ChannelsHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 	serverID := chi.URLParam(r, "serverID")
 	userID := middleware.UserID(r)
 
-	var isMember bool
-	h.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM server_members WHERE server_id=$1 AND user_id=$2)`, serverID, userID).Scan(&isMember)
-	if !isMember {
+	var hasAccess bool
+	h.db.QueryRow(r.Context(), `
+		SELECT EXISTS(
+			SELECT 1 FROM server_members sm
+			JOIN channels c ON c.server_id = sm.server_id
+			WHERE sm.server_id = $1 AND sm.user_id = $2 AND c.id = $3
+		)`, serverID, userID, channelID).Scan(&hasAccess)
+	if !hasAccess {
 		writeErr(w, http.StatusForbidden, "not a member")
 		return
 	}

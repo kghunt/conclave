@@ -34,9 +34,14 @@ func (h *MessagesHandler) List(w http.ResponseWriter, r *http.Request) {
 	serverID := chi.URLParam(r, "serverID")
 	userID := middleware.UserID(r)
 
-	var isMember bool
-	h.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM server_members WHERE server_id=$1 AND user_id=$2)`, serverID, userID).Scan(&isMember)
-	if !isMember {
+	var hasAccess bool
+	h.db.QueryRow(r.Context(), `
+		SELECT EXISTS(
+			SELECT 1 FROM server_members sm
+			JOIN channels c ON c.server_id = sm.server_id
+			WHERE sm.server_id = $1 AND sm.user_id = $2 AND c.id = $3
+		)`, serverID, userID, channelID).Scan(&hasAccess)
+	if !hasAccess {
 		writeErr(w, http.StatusForbidden, "not a member")
 		return
 	}
@@ -104,9 +109,14 @@ func (h *MessagesHandler) Send(w http.ResponseWriter, r *http.Request) {
 	serverID := chi.URLParam(r, "serverID")
 	userID := middleware.UserID(r)
 
-	var isMember bool
-	h.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM server_members WHERE server_id=$1 AND user_id=$2)`, serverID, userID).Scan(&isMember)
-	if !isMember {
+	var hasAccess bool
+	h.db.QueryRow(r.Context(), `
+		SELECT EXISTS(
+			SELECT 1 FROM server_members sm
+			JOIN channels c ON c.server_id = sm.server_id
+			WHERE sm.server_id = $1 AND sm.user_id = $2 AND c.id = $3
+		)`, serverID, userID, channelID).Scan(&hasAccess)
+	if !hasAccess {
 		writeErr(w, http.StatusForbidden, "not a member")
 		return
 	}
@@ -185,6 +195,7 @@ func (h *MessagesHandler) Send(w http.ResponseWriter, r *http.Request) {
 func (h *MessagesHandler) Edit(w http.ResponseWriter, r *http.Request) {
 	messageID := chi.URLParam(r, "messageID")
 	channelID := chi.URLParam(r, "channelID")
+	serverID := chi.URLParam(r, "serverID")
 	userID := middleware.UserID(r)
 
 	var body struct {
@@ -205,12 +216,13 @@ func (h *MessagesHandler) Edit(w http.ResponseWriter, r *http.Request) {
 		WITH upd AS (
 			UPDATE messages SET content = $1, edited_at = NOW()
 			WHERE id = $2 AND author_id = $3
+			  AND channel_id IN (SELECT id FROM channels WHERE server_id = $4)
 			RETURNING id, channel_id, content, edited_at, created_at, author_id
 		)
 		SELECT upd.id, upd.channel_id, upd.content, upd.edited_at, upd.created_at,
 		       u.id, u.display_name, u.bio, u.avatar_url
 		FROM upd JOIN users u ON u.id = upd.author_id
-	`, body.Content, messageID, userID).Scan(
+	`, body.Content, messageID, userID, serverID).Scan(
 		&m.ID, &m.ChannelID, &m.Content, &m.EditedAt, &m.CreatedAt,
 		&m.Author.ID, &m.Author.DisplayName, &m.Author.Bio, &m.Author.AvatarURL,
 	)
