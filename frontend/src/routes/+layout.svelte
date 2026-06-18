@@ -14,7 +14,15 @@
 			const user = await api.me();
 			currentUser.set(user);
 			socket.connect();
+			const pending = sessionStorage.getItem('pendingRedirect');
+			if (pending) {
+				sessionStorage.removeItem('pendingRedirect');
+				goto(pending);
+			}
 		} catch {
+			if ($page.url.pathname !== '/') {
+				sessionStorage.setItem('pendingRedirect', $page.url.pathname + $page.url.search);
+			}
 			goto('/login');
 		}
 	});
