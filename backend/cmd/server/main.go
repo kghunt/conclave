@@ -53,6 +53,7 @@ func main() {
 	friendsH := handlers.NewFriends(pool, hub)
 	messagesH := handlers.NewMessages(pool, hub, pushH, cfg.AvatarDir, cfg.BaseURL)
 	dmsH := handlers.NewDMs(pool, hub, pushH, cfg.AvatarDir, cfg.BaseURL)
+	rolesH := handlers.NewRoles(pool, hub)
 	wsH := handlers.NewWS(hub, authSvc, pool, cfg.BaseURL, cfg.FrontendURL)
 	go wsH.RunPresenceBroadcaster()
 
@@ -108,6 +109,17 @@ func main() {
 		r.Delete("/api/servers/{serverID}/leave", serversH.Leave)
 		r.Get("/api/servers/{serverID}/members", serversH.Members)
 		r.Patch("/api/servers/{serverID}/members/{userID}", serversH.UpdateMember)
+
+		// space roles
+		r.Get("/api/servers/{serverID}/roles", rolesH.ListRoles)
+		r.Post("/api/servers/{serverID}/roles", rolesH.CreateRole)
+		r.Patch("/api/servers/{serverID}/roles/{roleID}", rolesH.UpdateRole)
+		r.Delete("/api/servers/{serverID}/roles/{roleID}", rolesH.DeleteRole)
+		r.Post("/api/servers/{serverID}/members/{userID}/roles/{roleID}", rolesH.AssignRole)
+		r.Delete("/api/servers/{serverID}/members/{userID}/roles/{roleID}", rolesH.RemoveRole)
+		r.Get("/api/servers/{serverID}/channels/{channelID}/permissions", rolesH.ListChannelPerms)
+		r.Put("/api/servers/{serverID}/channels/{channelID}/permissions/{roleID}", rolesH.SetChannelPerm)
+		r.Delete("/api/servers/{serverID}/channels/{channelID}/permissions/{roleID}", rolesH.DeleteChannelPerm)
 		r.Delete("/api/servers/{serverID}/members/{userID}", serversH.KickMember)
 		r.Post("/api/servers/{serverID}/members/{userID}/ban", serversH.BanMember)
 		r.Delete("/api/servers/{serverID}/bans/{userID}", serversH.UnbanMember)

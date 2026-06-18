@@ -62,9 +62,17 @@ func (h *MessagesHandler) List(w http.ResponseWriter, r *http.Request) {
 	const listQuery = `
 		SELECT m.id, m.channel_id, m.content, m.edited_at, m.created_at,
 		       u.id, u.display_name, u.bio, u.avatar_url,
+		       COALESCE(top_role.color, '') as role_color,
 		       r.id, r.content, ru.display_name
 		FROM messages m
 		JOIN users u ON u.id = m.author_id
+		LEFT JOIN LATERAL (
+			SELECT sr.color FROM space_role_members srm
+			JOIN space_roles sr ON sr.id = srm.role_id
+			WHERE srm.server_id = $2 AND srm.user_id = u.id
+			  AND sr.color != '' AND sr.is_everyone = FALSE
+			ORDER BY sr.position DESC LIMIT 1
+		) top_role ON true
 		LEFT JOIN messages r ON r.id = m.reply_to_id
 		LEFT JOIN users ru ON ru.id = r.author_id
 		WHERE m.channel_id = $1`
@@ -72,9 +80,9 @@ func (h *MessagesHandler) List(w http.ResponseWriter, r *http.Request) {
 	var rows interface{ Next() bool; Scan(...any) error; Close() }
 	var err error
 	if beforeTime != nil {
-		rows, err = h.db.Query(r.Context(), listQuery+` AND m.created_at < $2 ORDER BY m.created_at DESC LIMIT 50`, channelID, *beforeTime)
+		rows, err = h.db.Query(r.Context(), listQuery+` AND m.created_at < $3 ORDER BY m.created_at DESC LIMIT 50`, channelID, serverID, *beforeTime)
 	} else {
-		rows, err = h.db.Query(r.Context(), listQuery+` ORDER BY m.created_at DESC LIMIT 50`, channelID)
+		rows, err = h.db.Query(r.Context(), listQuery+` ORDER BY m.created_at DESC LIMIT 50`, channelID, serverID)
 	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "query failed")
@@ -89,6 +97,7 @@ func (h *MessagesHandler) List(w http.ResponseWriter, r *http.Request) {
 		var replyID, replyContent, replyAuthor *string
 		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Content, &m.EditedAt, &m.CreatedAt,
 			&m.Author.ID, &m.Author.DisplayName, &m.Author.Bio, &m.Author.AvatarURL,
+			&m.Author.RoleColor,
 			&replyID, &replyContent, &replyAuthor); err != nil {
 			continue
 		}
@@ -109,15 +118,26 @@ func (h *MessagesHandler) Send(w http.ResponseWriter, r *http.Request) {
 	serverID := chi.URLParam(r, "serverID")
 	userID := middleware.UserID(r)
 
-	var hasAccess bool
+	var canSend bool
 	h.db.QueryRow(r.Context(), `
 		SELECT EXISTS(
 			SELECT 1 FROM server_members sm
 			JOIN channels c ON c.server_id = sm.server_id
 			WHERE sm.server_id = $1 AND sm.user_id = $2 AND c.id = $3
-		)`, serverID, userID, channelID).Scan(&hasAccess)
-	if !hasAccess {
-		writeErr(w, http.StatusForbidden, "not a member")
+			AND (
+				sm.role IN ('owner', 'admin')
+				OR NOT EXISTS (SELECT 1 FROM channel_role_permissions WHERE channel_id = c.id)
+				OR EXISTS (
+					SELECT 1 FROM channel_role_permissions crp
+					JOIN space_roles sr ON sr.id = crp.role_id
+					WHERE crp.channel_id = c.id AND crp.can_write = true
+					AND (sr.is_everyone = true
+						OR EXISTS (SELECT 1 FROM space_role_members WHERE server_id=$1 AND user_id=$2 AND role_id=sr.id))
+				)
+			)
+		)`, serverID, userID, channelID).Scan(&canSend)
+	if !canSend {
+		writeErr(w, http.StatusForbidden, "no write access to this channel")
 		return
 	}
 
@@ -147,11 +167,19 @@ func (h *MessagesHandler) Send(w http.ResponseWriter, r *http.Request) {
 			RETURNING id, channel_id, content, reply_to_id, edited_at, created_at, author_id
 		)
 		SELECT ins.id, ins.channel_id, ins.content, ins.edited_at, ins.created_at,
-		       u.id, u.display_name, u.bio, u.avatar_url
+		       u.id, u.display_name, u.bio, u.avatar_url,
+		       COALESCE((
+		           SELECT sr.color FROM space_role_members srm
+		           JOIN space_roles sr ON sr.id = srm.role_id
+		           WHERE srm.server_id = $5 AND srm.user_id = u.id
+		             AND sr.color != '' AND sr.is_everyone = FALSE
+		           ORDER BY sr.position DESC LIMIT 1
+		       ), '')
 		FROM ins JOIN users u ON u.id = ins.author_id
-	`, channelID, userID, body.Content, replyToID).Scan(
+	`, channelID, userID, body.Content, replyToID, serverID).Scan(
 		&m.ID, &m.ChannelID, &m.Content, &m.EditedAt, &m.CreatedAt,
 		&m.Author.ID, &m.Author.DisplayName, &m.Author.Bio, &m.Author.AvatarURL,
+		&m.Author.RoleColor,
 	)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "send failed")

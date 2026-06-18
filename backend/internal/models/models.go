@@ -9,9 +9,28 @@ type User struct {
 	DisplayName     string    `json:"display_name"`
 	Bio             string    `json:"bio"`
 	AvatarURL       string    `json:"avatar_url"`
+	RoleColor       string    `json:"role_color,omitempty"`
 	IsInstanceAdmin bool      `json:"is_instance_admin,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+type SpaceRole struct {
+	ID         string    `json:"id"`
+	ServerID   string    `json:"server_id"`
+	Name       string    `json:"name"`
+	Color      string    `json:"color"`
+	IsEveryone bool      `json:"is_everyone"`
+	Position   int       `json:"position"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+type ChannelPermission struct {
+	RoleID   string `json:"role_id"`
+	RoleName string `json:"role_name"`
+	Color    string `json:"color"`
+	CanView  bool   `json:"can_view"`
+	CanWrite bool   `json:"can_write"`
 }
 
 type Server struct {
@@ -48,6 +67,7 @@ type Channel struct {
 	Position    int       `json:"position"`
 	CreatedAt   time.Time `json:"created_at"`
 	UnreadCount int       `json:"unread_count,omitempty"`
+	CanWrite    bool      `json:"can_write"`
 }
 
 type VoicePeer struct {
@@ -116,7 +136,8 @@ type Invite struct {
 }
 
 type ServerMember struct {
-	User      *User     `json:"user"`
-	Role      string    `json:"role"`
-	JoinedAt  time.Time `json:"joined_at"`
+	User       *User       `json:"user"`
+	Role       string      `json:"role"`
+	JoinedAt   time.Time   `json:"joined_at"`
+	SpaceRoles []SpaceRole `json:"space_roles"`
 }

@@ -23,21 +23,58 @@ func (h *ChannelsHandler) List(w http.ResponseWriter, r *http.Request) {
 	serverID := chi.URLParam(r, "serverID")
 	userID := middleware.UserID(r)
 
-	var isMember bool
-	h.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM server_members WHERE server_id=$1 AND user_id=$2)`, serverID, userID).Scan(&isMember)
-	if !isMember {
+	var userRole string
+	if err := h.db.QueryRow(r.Context(), `SELECT role FROM server_members WHERE server_id=$1 AND user_id=$2`, serverID, userID).Scan(&userRole); err != nil {
 		writeErr(w, http.StatusForbidden, "not a member")
 		return
 	}
+	isAdmin := userRole == "owner" || userRole == "admin"
 
-	rows, err := h.db.Query(r.Context(), `
-		SELECT c.id, c.server_id, c.name, c.description, c.type, c.position, c.created_at,
-		  (SELECT COUNT(*) FROM messages m WHERE m.channel_id = c.id
-		   AND m.created_at > COALESCE((SELECT last_read FROM read_cursors WHERE user_id=$2 AND channel_id=c.id), '1970-01-01'))
-		FROM channels c
-		WHERE c.server_id = $1
-		ORDER BY c.position, c.name
-	`, serverID, userID)
+	unreadSub := `(SELECT COUNT(*) FROM messages m WHERE m.channel_id = c.id
+		AND m.created_at > COALESCE((SELECT last_read FROM read_cursors WHERE user_id=$2 AND channel_id=c.id), '1970-01-01'))`
+
+	permViewCond := `(
+		NOT EXISTS (SELECT 1 FROM channel_role_permissions WHERE channel_id = c.id)
+		OR EXISTS (
+			SELECT 1 FROM channel_role_permissions crp
+			JOIN space_roles sr ON sr.id = crp.role_id
+			WHERE crp.channel_id = c.id AND crp.can_view = true
+			AND (sr.is_everyone = true
+				OR EXISTS (SELECT 1 FROM space_role_members WHERE server_id=$1 AND user_id=$2 AND role_id=sr.id))
+		)
+	)`
+	permWriteCond := `(
+		NOT EXISTS (SELECT 1 FROM channel_role_permissions WHERE channel_id = c.id)
+		OR EXISTS (
+			SELECT 1 FROM channel_role_permissions crp
+			JOIN space_roles sr ON sr.id = crp.role_id
+			WHERE crp.channel_id = c.id AND crp.can_write = true
+			AND (sr.is_everyone = true
+				OR EXISTS (SELECT 1 FROM space_role_members WHERE server_id=$1 AND user_id=$2 AND role_id=sr.id))
+		)
+	)`
+
+	var (
+		rows interface{ Next() bool; Scan(...any) error; Close() }
+		err  error
+	)
+	if isAdmin {
+		rows, err = h.db.Query(r.Context(), `
+			SELECT c.id, c.server_id, c.name, c.description, c.type, c.position, c.created_at,
+			  `+unreadSub+`, TRUE
+			FROM channels c WHERE c.server_id = $1
+			ORDER BY c.position, c.name
+		`, serverID, userID)
+	} else {
+		rows, err = h.db.Query(r.Context(), `
+			SELECT c.id, c.server_id, c.name, c.description, c.type, c.position, c.created_at,
+			  `+unreadSub+`,
+			  `+permWriteCond+`
+			FROM channels c WHERE c.server_id = $1
+			AND `+permViewCond+`
+			ORDER BY c.position, c.name
+		`, serverID, userID)
+	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "query failed")
 		return
@@ -47,7 +84,7 @@ func (h *ChannelsHandler) List(w http.ResponseWriter, r *http.Request) {
 	channels := make([]models.Channel, 0)
 	for rows.Next() {
 		var c models.Channel
-		if err := rows.Scan(&c.ID, &c.ServerID, &c.Name, &c.Description, &c.Type, &c.Position, &c.CreatedAt, &c.UnreadCount); err != nil {
+		if err := rows.Scan(&c.ID, &c.ServerID, &c.Name, &c.Description, &c.Type, &c.Position, &c.CreatedAt, &c.UnreadCount, &c.CanWrite); err != nil {
 			continue
 		}
 		channels = append(channels, c)
@@ -95,6 +132,7 @@ func (h *ChannelsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "create failed")
 		return
 	}
+	c.CanWrite = true
 	writeJSON(w, http.StatusCreated, c)
 }
 

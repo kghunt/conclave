@@ -8,8 +8,10 @@
 	import VoicePanel from './VoicePanel.svelte';
 	import Avatar from './Avatar.svelte';
 	import AdminPanel from './AdminPanel.svelte';
+	import ChannelPermsModal from './ChannelPermsModal.svelte';
 
 	let showAdmin = $state(false);
+	let permsChannel = $state<Channel | null>(null);
 
 	// Subscribe to personal user room for real-time friend acceptance
 	$effect(() => {
@@ -304,6 +306,7 @@
 		{/if}
 
 		{#each $channels.filter((c) => c.type === 'text') as ch}
+			{@const isAdmin = $activeServer?.role === 'owner' || $activeServer?.role === 'admin'}
 			<div class="channel-row">
 				<button
 					class="channel-item"
@@ -311,13 +314,16 @@
 					onclick={() => selectChannel(ch)}
 				>
 					<span># {ch.name}</span>
-					{#if $mentionedChannels.has(ch.id)}
+					{#if !isAdmin && !ch.can_write}
+						<span class="ch-readonly" title="Read-only">🔒</span>
+					{:else if $mentionedChannels.has(ch.id)}
 						<span class="badge mention-badge">@</span>
 					{:else if ch.unread_count > 0}
 						<span class="badge">{ch.unread_count}</span>
 					{/if}
 				</button>
-				{#if $activeServer?.role === 'owner' || $activeServer?.role === 'admin'}
+				{#if isAdmin}
+					<button class="ch-perms-btn" onclick={() => (permsChannel = ch)} title="Channel permissions">⚙</button>
 					<button class="ch-delete-btn" onclick={() => deleteChannel(ch)} title="Delete channel">✕</button>
 				{/if}
 			</div>
@@ -328,6 +334,7 @@
 				<span>Thread Channels</span>
 			</div>
 			{#each $channels.filter((c) => c.type === 'threads') as ch}
+				{@const isAdmin = $activeServer?.role === 'owner' || $activeServer?.role === 'admin'}
 				<div class="channel-row">
 					<button
 						class="channel-item"
@@ -335,11 +342,14 @@
 						onclick={() => selectChannel(ch)}
 					>
 						<span>💬 {ch.name}</span>
-						{#if ch.unread_count > 0}
+						{#if !isAdmin && !ch.can_write}
+							<span class="ch-readonly" title="Read-only">🔒</span>
+						{:else if ch.unread_count > 0}
 							<span class="badge">{ch.unread_count}</span>
 						{/if}
 					</button>
-					{#if $activeServer?.role === 'owner' || $activeServer?.role === 'admin'}
+					{#if isAdmin}
+						<button class="ch-perms-btn" onclick={() => (permsChannel = ch)} title="Channel permissions">⚙</button>
 						<button class="ch-delete-btn" onclick={() => deleteChannel(ch)} title="Delete channel">✕</button>
 					{/if}
 				</div>
@@ -504,6 +514,14 @@
 
 {#if showAdmin}
 	<AdminPanel onclose={() => (showAdmin = false)} />
+{/if}
+
+{#if permsChannel && $activeServer}
+	<ChannelPermsModal
+		serverId={$activeServer.id}
+		channel={permsChannel}
+		onclose={() => (permsChannel = null)}
+	/>
 {/if}
 
 <style>
@@ -918,4 +936,24 @@
 		min-width: 0;
 	}
 	.user-info:hover { background: rgba(255,255,255,0.07); }
+	.ch-perms-btn {
+		display: none;
+		background: none;
+		border: none;
+		color: var(--text-muted);
+		cursor: pointer;
+		font-size: 0.8rem;
+		padding: 2px 4px;
+		border-radius: 3px;
+		line-height: 1;
+	}
+	.ch-perms-btn:hover { color: var(--text); background: rgba(255,255,255,0.1); }
+	.channel-row:hover .ch-perms-btn { display: block; }
+	.ch-readonly {
+		font-size: 0.7rem;
+		color: var(--text-muted);
+		margin-left: auto;
+		flex-shrink: 0;
+		opacity: 0.7;
+	}
 </style>

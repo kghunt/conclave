@@ -152,7 +152,7 @@
 						</div>
 					{/if}
 					<div class="header">
-						<span class="name">{author.display_name}</span>
+						<span class="name" style={author.role_color ? `color:${author.role_color}` : ''}>{author.display_name}</span>
 						<span class="time">{formatTime(msg.created_at)}</span>
 						{#if isMessage(msg) && msg.edited_at}
 							<span class="edited">(edited)</span>

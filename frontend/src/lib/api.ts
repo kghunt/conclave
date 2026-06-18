@@ -125,6 +125,25 @@ export const api = {
 		req<void>('PATCH', `/servers/${serverId}/join-requests/${requestId}`, { action }),
 	getPresence: (serverId: string) => req<Record<string, string>>('GET', `/servers/${serverId}/presence`),
 
+	// space roles
+	listRoles: (serverId: string) => req<SpaceRole[]>('GET', `/servers/${serverId}/roles`),
+	createRole: (serverId: string, data: { name: string; color: string }) =>
+		req<SpaceRole>('POST', `/servers/${serverId}/roles`, data),
+	updateRole: (serverId: string, roleId: string, data: { name?: string; color?: string }) =>
+		req<SpaceRole>('PATCH', `/servers/${serverId}/roles/${roleId}`, data),
+	deleteRole: (serverId: string, roleId: string) =>
+		req<void>('DELETE', `/servers/${serverId}/roles/${roleId}`),
+	assignRole: (serverId: string, userId: string, roleId: string) =>
+		req<void>('POST', `/servers/${serverId}/members/${userId}/roles/${roleId}`),
+	removeRole: (serverId: string, userId: string, roleId: string) =>
+		req<void>('DELETE', `/servers/${serverId}/members/${userId}/roles/${roleId}`),
+	listChannelPerms: (serverId: string, channelId: string) =>
+		req<ChannelPerm[]>('GET', `/servers/${serverId}/channels/${channelId}/permissions`),
+	setChannelPerm: (serverId: string, channelId: string, roleId: string, data: { can_view: boolean; can_write: boolean }) =>
+		req<void>('PUT', `/servers/${serverId}/channels/${channelId}/permissions/${roleId}`, data),
+	deleteChannelPerm: (serverId: string, channelId: string, roleId: string) =>
+		req<void>('DELETE', `/servers/${serverId}/channels/${channelId}/permissions/${roleId}`),
+
 	// space moderation
 	kickMember: (serverId: string, userId: string) =>
 		req<void>('DELETE', `/servers/${serverId}/members/${userId}`),
@@ -164,6 +183,7 @@ export interface User {
 	display_name: string;
 	bio: string;
 	avatar_url: string;
+	role_color?: string;
 	is_instance_admin?: boolean;
 	created_at: string;
 }
@@ -229,6 +249,26 @@ export interface Server {
 	created_at: string;
 }
 
+export interface SpaceRole {
+	id: string;
+	server_id: string;
+	name: string;
+	color: string;
+	is_everyone: boolean;
+	position: number;
+	created_at: string;
+}
+
+export interface ChannelPerm {
+	role_id: string;
+	role_name: string;
+	color: string;
+	is_everyone: boolean;
+	can_view: boolean;
+	can_write: boolean;
+	has_override: boolean;
+}
+
 export interface Channel {
 	id: string;
 	server_id: string;
@@ -237,6 +277,7 @@ export interface Channel {
 	type: 'text' | 'voice' | 'threads';
 	position: number;
 	unread_count: number;
+	can_write: boolean;
 	created_at: string;
 }
 
@@ -299,6 +340,7 @@ export interface ServerMember {
 	user: User;
 	role: string;
 	joined_at: string;
+	space_roles: SpaceRole[];
 }
 
 export interface FriendEntry {

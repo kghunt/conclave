@@ -98,6 +98,7 @@ func (h *ServersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.db.Exec(r.Context(), `INSERT INTO server_members (server_id, user_id, role) VALUES ($1, $2, 'owner')`, s.ID, userID)
+	h.db.Exec(r.Context(), `INSERT INTO space_roles (server_id, name, is_everyone, position) VALUES ($1, 'everyone', TRUE, 0)`, s.ID)
 
 	// create a default #general channel
 	h.db.Exec(r.Context(), `INSERT INTO channels (server_id, name) VALUES ($1, 'general')`, s.ID)
@@ -352,11 +353,39 @@ func (h *ServersHandler) Members(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var m models.ServerMember
 		m.User = &models.User{}
+		m.SpaceRoles = []models.SpaceRole{}
 		if err := rows.Scan(&m.User.ID, &m.User.DisplayName, &m.User.Bio, &m.User.AvatarURL, &m.User.CreatedAt, &m.User.UpdatedAt, &m.Role, &m.JoinedAt); err != nil {
 			continue
 		}
 		members = append(members, m)
 	}
+	rows.Close()
+
+	// Fetch space role assignments in bulk and merge
+	roleRows, err := h.db.Query(r.Context(), `
+		SELECT srm.user_id, sr.id, sr.name, sr.color, sr.position
+		FROM space_role_members srm
+		JOIN space_roles sr ON sr.id = srm.role_id
+		WHERE srm.server_id = $1 AND sr.is_everyone = FALSE
+		ORDER BY sr.position DESC
+	`, serverID)
+	if err == nil {
+		defer roleRows.Close()
+		roleMap := map[string][]models.SpaceRole{}
+		for roleRows.Next() {
+			var uid string
+			var sr models.SpaceRole
+			if roleRows.Scan(&uid, &sr.ID, &sr.Name, &sr.Color, &sr.Position) == nil {
+				roleMap[uid] = append(roleMap[uid], sr)
+			}
+		}
+		for i := range members {
+			if roles, ok := roleMap[members[i].User.ID]; ok {
+				members[i].SpaceRoles = roles
+			}
+		}
+	}
+
 	writeJSON(w, http.StatusOK, members)
 }
 

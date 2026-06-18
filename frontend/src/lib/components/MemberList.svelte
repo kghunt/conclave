@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { api, type ServerMember, type JoinRequest } from '$lib/api';
+	import { api, type ServerMember, type JoinRequest, type SpaceRole } from '$lib/api';
 	import { activeServer, currentUser, activeDM, activeChannel, dmConversations, friends, pendingJoinRequests } from '$lib/stores';
 	import { socket } from '$lib/socket';
 	import Avatar from './Avatar.svelte';
@@ -10,6 +10,8 @@
 	let members: ServerMember[] = $state([]);
 	let menuMember = $state<ServerMember | null>(null);
 	let saving = $state(false);
+	let serverRoles = $state<SpaceRole[]>([]);
+	let roleMenuMember = $state<ServerMember | null>(null);
 
 	const isAdmin = $derived($activeServer?.role === 'owner' || $activeServer?.role === 'admin');
 	const isOwner = $derived($activeServer?.role === 'owner');
@@ -46,6 +48,22 @@
 	});
 
 	async function load() {
+		[members, serverRoles] = await Promise.all([
+			api.getMembers(serverId),
+			api.listRoles(serverId).catch(() => [] as SpaceRole[])
+		]);
+	}
+
+	const assignableRoles = $derived(serverRoles.filter((r) => !r.is_everyone));
+
+	async function toggleMemberRole(m: ServerMember, role: SpaceRole) {
+		const has = m.space_roles?.some((r) => r.id === role.id);
+		if (has) {
+			await api.removeRole(serverId, m.user.id, role.id);
+		} else {
+			await api.assignRole(serverId, m.user.id, role.id);
+		}
+		// Refresh member list to pick up new role assignments
 		members = await api.getMembers(serverId);
 	}
 
@@ -197,9 +215,17 @@
 				<Avatar url={m.user.avatar_url} name={m.user.display_name} userId={m.user.id} size={32} showPresence />
 				<div class="member-info">
 					<span class="member-name">{m.user.display_name}</span>
-					<span class="role-badge role-{m.role}">
-						{m.role === 'owner' ? '👑 Owner' : m.role === 'admin' ? '⚡ Admin' : 'Member'}
-					</span>
+					<div class="member-badges">
+						<span class="role-badge role-{m.role}">
+							{m.role === 'owner' ? '👑 Owner' : m.role === 'admin' ? '⚡ Admin' : 'Member'}
+						</span>
+						{#each (m.space_roles ?? []) as sr}
+							<span
+								class="space-role-badge"
+								style={sr.color ? `color:${sr.color}; border-color:${sr.color}40; background:${sr.color}15` : ''}
+							>{sr.name}</span>
+						{/each}
+					</div>
 				</div>
 				{#if m.user.id !== $currentUser?.id}
 					{@const reqState = addFriendState[m.user.id]}
@@ -226,12 +252,34 @@
 								{/if}
 							</button>
 						{/if}
+						{#if isAdmin && assignableRoles.length > 0}
+							<button
+								class="action-btn"
+								onclick={(e) => { e.stopPropagation(); roleMenuMember = roleMenuMember?.user.id === m.user.id ? null : m; menuMember = null; }}
+								title="Assign roles"
+							>🏷</button>
+						{/if}
 						{#if (isAdmin && m.role !== 'owner') || isInstanceAdmin}
-							<button class="action-btn" onclick={(e) => { e.stopPropagation(); menuMember = menuMember?.user.id === m.user.id ? null : m; }} title="Manage">
+							<button class="action-btn" onclick={(e) => { e.stopPropagation(); menuMember = menuMember?.user.id === m.user.id ? null : m; roleMenuMember = null; }} title="Manage">
 								⋯
 							</button>
 						{/if}
 					</div>
+					{#if roleMenuMember?.user.id === m.user.id && assignableRoles.length > 0}
+						<div class="role-menu">
+							<div class="role-menu-header">Assign Roles</div>
+							{#each assignableRoles as sr}
+								{@const hasRole = m.space_roles?.some((r) => r.id === sr.id)}
+								<button
+									class="role-assign-btn"
+									onclick={() => toggleMemberRole(m, sr)}
+								>
+									<span class="role-check">{hasRole ? '✓' : ''}</span>
+									<span style={sr.color ? `color:${sr.color}` : ''}>{sr.name}</span>
+								</button>
+							{/each}
+						</div>
+					{/if}
 					{#if menuMember?.user.id === m.user.id}
 						<div class="role-menu">
 							{#if isOwner && m.role !== 'owner'}
@@ -311,6 +359,12 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
+	.member-badges {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.2rem;
+		align-items: center;
+	}
 	.role-badge {
 		font-size: 0.65rem;
 		font-weight: 600;
@@ -318,6 +372,44 @@
 	.role-owner { color: #f0a020; }
 	.role-admin { color: var(--accent); }
 	.role-member { color: var(--text-muted); }
+	.space-role-badge {
+		font-size: 0.62rem;
+		font-weight: 600;
+		color: var(--text-muted);
+		border: 1px solid var(--border);
+		background: rgba(255,255,255,0.05);
+		padding: 0.05rem 0.3rem;
+		border-radius: 3px;
+	}
+	.role-menu-header {
+		padding: 0.25rem 0.5rem 0.1rem;
+		font-size: 0.65rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		color: var(--text-muted);
+		letter-spacing: 0.05em;
+	}
+	.role-assign-btn {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		width: 100%;
+		background: none;
+		border: none;
+		color: var(--text);
+		padding: 0.35rem 0.5rem;
+		text-align: left;
+		cursor: pointer;
+		border-radius: 3px;
+		font-size: 0.8rem;
+	}
+	.role-assign-btn:hover { background: rgba(255,255,255,0.08); }
+	.role-check {
+		width: 14px;
+		font-size: 0.75rem;
+		color: #44c97d;
+		flex-shrink: 0;
+	}
 
 	.member-actions {
 		display: flex;
