@@ -17,9 +17,9 @@
 
 	onMount(async () => {
 		const s = await api.listServers();
-		servers.set(s);
+		servers.set(s ?? []);
 		const convs = await api.listConversations();
-		dmConversations.set(convs);
+		dmConversations.set(convs ?? []);
 	});
 
 	// Load channels when active server changes; auto-select first channel
@@ -29,8 +29,8 @@
 		// Capture srv.id so the async callback doesn't close over a stale store value
 		const id = srv.id;
 		api.listChannels(id).then((ch) => {
-			channels.set(ch);
-			if (ch.length > 0) activeChannel.set(ch[0]);
+			channels.set(ch ?? []);
+			if (ch?.length > 0) activeChannel.set(ch[0]);
 		});
 	});
 
@@ -45,7 +45,7 @@
 		const serverId = srv.id;
 		const room = 'channel:' + channelId;
 
-		api.listMessages(serverId, channelId).then((m) => (messages = m));
+		api.listMessages(serverId, channelId).then((m) => (messages = m ?? []));
 		api.markRead(serverId, channelId);
 		channels.update((cs) => cs.map((c) => c.id === channelId ? { ...c, unread_count: 0 } : c));
 		socket.subscribe(room);
@@ -79,7 +79,7 @@
 		const convId = dm.id;
 		const room = 'dm:' + convId;
 
-		api.listDMMessages(convId).then((m) => (dmMessages = m));
+		api.listDMMessages(convId).then((m) => (dmMessages = m ?? []));
 		socket.subscribe(room);
 
 		const unsub = socket.on((event) => {

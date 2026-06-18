@@ -42,7 +42,7 @@ func (h *ChannelsHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var channels []models.Channel
+	channels := make([]models.Channel, 0)
 	for rows.Next() {
 		var c models.Channel
 		if err := rows.Scan(&c.ID, &c.ServerID, &c.Name, &c.Description, &c.Position, &c.CreatedAt, &c.UnreadCount); err != nil {
