@@ -32,8 +32,8 @@
 	<div class="card">
 		<div class="logo">
 			<svg width="40" height="40" viewBox="0 0 32 32">
-				<rect width="32" height="32" rx="7" fill="#1c1c21"/>
-				<path d="M7 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-4l-4 4-4-4H9a2 2 0 0 1-2-2V9z" fill="#e8541e"/>
+				<rect width="32" height="32" rx="7" fill="var(--bg-panel)"/>
+				<path d="M7 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-4l-4 4-4-4H9a2 2 0 0 1-2-2V9z" fill="var(--accent)"/>
 			</svg>
 			<span>Conclave</span>
 		</div>
@@ -49,17 +49,17 @@
 </div>
 
 <style>
-	:global(body) { background: #111113; }
+	:global(body) { background: var(--bg); }
 	.wrap {
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		min-height: 100vh;
-		background: #111113;
+		background: var(--bg);
 	}
 	.card {
-		background: #1c1c21;
-		border: 1px solid #2e2e38;
+		background: var(--bg-panel);
+		border: 1px solid var(--border);
 		border-radius: 12px;
 		padding: 2.5rem;
 		text-align: center;
@@ -75,9 +75,9 @@
 		gap: 0.75rem;
 		font-size: 1.4rem;
 		font-weight: 700;
-		color: #f0eff4;
+		color: var(--text);
 	}
-	.status { color: #8b8b99; font-size: 0.95rem; }
+	.status { color: var(--text-muted); font-size: 0.95rem; }
 	.error {
 		color: #e04545;
 		font-size: 0.9rem;
@@ -89,14 +89,14 @@
 	.spinner {
 		width: 28px;
 		height: 28px;
-		border: 3px solid #2e2e38;
-		border-top-color: #e8541e;
+		border: 3px solid var(--border);
+		border-top-color: var(--accent);
 		border-radius: 50%;
 		animation: spin 0.7s linear infinite;
 	}
 	@keyframes spin { to { transform: rotate(360deg); } }
 	.home-btn {
-		background: #e8541e;
+		background: var(--accent);
 		color: white;
 		text-decoration: none;
 		padding: 0.6rem 1.25rem;

@@ -44,7 +44,7 @@
 		--rgb-accent: 232, 84, 30;
 		--rgb-background: 26, 26, 33;
 		--rgb-input: 38, 38, 43;
-		--color-border: #2e2e38;
+		--color-border: var(--border);
 		--color-border-over: #3a3a45;
 		height: 380px;
 	}

@@ -130,6 +130,7 @@ export interface User {
 export interface AdminSettings {
 	message_retention_days: string;
 	inactive_space_retention_days: string;
+	[key: string]: string;
 }
 
 export interface Server {

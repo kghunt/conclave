@@ -4,7 +4,31 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="text-scale" content="scale" />
-		<meta name="theme-color" content="#1c1c21" />
+		<style>
+			:root {
+				--accent:     #e8541e;
+				--bg:         #111113;
+				--bg-sidebar: #19191d;
+				--bg-panel:   #1c1c21;
+				--bg-input:   #26262b;
+				--border:     #2e2e38;
+				--text:       #f0eff4;
+				--text-muted: #8b8b99;
+			}
+		</style>
+		<script>
+			(function() {
+				try {
+					var t = JSON.parse(localStorage.getItem('conclave_theme') || '{}');
+					var map = { accent:'--accent', bg:'--bg', sidebar:'--bg-sidebar',
+						panel:'--bg-panel', input:'--bg-input', border:'--border',
+						text:'--text', text_muted:'--text-muted' };
+					var s = document.documentElement.style;
+					for (var k in map) { if (t[k]) s.setProperty(map[k], t[k]); }
+				} catch(e) {}
+			})();
+		</script>
+		<meta name="theme-color" content="#1c1c21" id="meta-theme-color" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 		<meta name="apple-mobile-web-app-title" content="Conclave" />

@@ -23,11 +23,11 @@
 		align-items: center;
 		justify-content: center;
 		min-height: 100vh;
-		background: #111113;
+		background: var(--bg);
 	}
 	.card {
-		background: #1c1c21;
-		border: 1px solid #2e2e38;
+		background: var(--bg-panel);
+		border: 1px solid var(--border);
 		border-radius: 12px;
 		padding: 3rem 2.5rem;
 		text-align: center;
@@ -36,7 +36,7 @@
 	h1 {
 		font-size: 2rem;
 		font-weight: 700;
-		color: #f0eff4;
+		color: var(--text);
 		margin: 0 0 0.5rem;
 	}
 	p {

@@ -141,9 +141,9 @@
 		width: 48px;
 		height: 48px;
 		border-radius: 50%;
-		background: #1c1c21;
+		background: var(--bg-panel);
 		border: 2px solid transparent;
-		color: #f0eff4;
+		color: var(--text);
 		font-size: 0.85rem;
 		font-weight: 700;
 		cursor: pointer;
@@ -156,13 +156,13 @@
 	.server-icon img { width: 100%; height: 100%; object-fit: cover; }
 	.server-icon:hover, .server-icon.active {
 		border-radius: 30%;
-		border-color: #e8541e;
+		border-color: var(--accent);
 	}
 	.server-icon.add { background: #1a2d1a; color: #44c97d; font-size: 1.5rem; }
 	.divider {
 		width: 32px;
 		height: 2px;
-		background: #2e2e38;
+		background: var(--border);
 		border-radius: 1px;
 		margin: 0.25rem 0;
 	}
@@ -170,8 +170,8 @@
 		position: fixed;
 		left: 80px;
 		top: 80px;
-		background: #1c1c21;
-		border: 1px solid #2e2e38;
+		background: var(--bg-panel);
+		border: 1px solid var(--border);
 		border-radius: 8px;
 		padding: 1rem;
 		z-index: 100;
@@ -193,11 +193,11 @@
 			overflow-y: auto;
 		}
 	}
-	.create-panel h3 { color: #f0eff4; margin-top: 0.5rem; font-size: 0.9rem; }
+	.create-panel h3 { color: var(--text); margin-top: 0.5rem; font-size: 0.9rem; }
 	.create-panel input:not([type="checkbox"]) {
-		background: #26262b;
-		border: 1px solid #2e2e38;
-		color: #f0eff4;
+		background: var(--bg-input);
+		border: 1px solid var(--border);
+		color: var(--text);
 		padding: 0.5rem;
 		border-radius: 4px;
 		font-size: 0.9rem;
@@ -205,7 +205,7 @@
 	}
 	.create-panel label { color: #aaa; font-size: 0.85rem; display: flex; gap: 0.5rem; align-items: center; }
 	.create-panel button {
-		background: #e8541e;
+		background: var(--accent);
 		border: none;
 		color: white;
 		padding: 0.5rem;

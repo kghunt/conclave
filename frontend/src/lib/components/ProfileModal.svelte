@@ -104,8 +104,8 @@
 		z-index: 200;
 	}
 	.modal {
-		background: #1c1c21;
-		border: 1px solid #2e2e38;
+		background: var(--bg-panel);
+		border: 1px solid var(--border);
 		border-radius: 8px;
 		padding: 1.5rem;
 		width: 400px;
@@ -113,7 +113,7 @@
 		flex-direction: column;
 		gap: 1rem;
 	}
-	h2 { color: #f0eff4; font-size: 1.1rem; }
+	h2 { color: var(--text); font-size: 1.1rem; }
 	.avatar-section {
 		display: flex;
 		align-items: center;
@@ -149,8 +149,8 @@
 	}
 	.avatar-actions button {
 		background: none;
-		border: 1px solid #2e2e38;
-		color: #e8541e;
+		border: 1px solid var(--border);
+		color: var(--accent);
 		padding: 0.4rem 0.75rem;
 		border-radius: 4px;
 		cursor: pointer;
@@ -162,16 +162,16 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.25rem;
-		color: #8b8b99;
+		color: var(--text-muted);
 		font-size: 0.8rem;
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 	}
 	label input, label textarea {
-		background: #26262b;
-		border: 1px solid #2e2e38;
-		color: #f0eff4;
+		background: var(--bg-input);
+		border: 1px solid var(--border);
+		color: var(--text);
 		padding: 0.5rem;
 		border-radius: 4px;
 		font-size: 0.9rem;
@@ -187,12 +187,12 @@
 	.cancel {
 		background: none;
 		border: none;
-		color: #8b8b99;
+		color: var(--text-muted);
 		cursor: pointer;
 		padding: 0.5rem 1rem;
 	}
 	.save {
-		background: #e8541e;
+		background: var(--accent);
 		border: none;
 		color: white;
 		padding: 0.5rem 1.25rem;
