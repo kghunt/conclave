@@ -59,8 +59,8 @@ export const api = {
 	// messages
 	listMessages: (serverId: string, channelId: string, before?: string) =>
 		req<Message[]>('GET', `/servers/${serverId}/channels/${channelId}/messages${before ? `?before=${before}` : ''}`),
-	sendMessage: (serverId: string, channelId: string, content: string) =>
-		req<Message>('POST', `/servers/${serverId}/channels/${channelId}/messages`, { content }),
+	sendMessage: (serverId: string, channelId: string, content: string, replyToId?: string) =>
+		req<Message>('POST', `/servers/${serverId}/channels/${channelId}/messages`, { content, reply_to_id: replyToId }),
 	editMessage: (serverId: string, channelId: string, messageId: string, content: string) =>
 		req<Message>('PATCH', `/servers/${serverId}/channels/${channelId}/messages/${messageId}`, { content }),
 	deleteMessage: (serverId: string, channelId: string, messageId: string) =>
@@ -180,11 +180,18 @@ export interface Channel {
 	created_at: string;
 }
 
+export interface MessageReply {
+	id: string;
+	content: string;
+	author_name: string;
+}
+
 export interface Message {
 	id: string;
 	channel_id: string;
 	author: User;
 	content: string;
+	reply_to?: MessageReply;
 	edited_at?: string;
 	created_at: string;
 }

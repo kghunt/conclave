@@ -3,6 +3,10 @@
 	import { api, type Message, type DirectMessage } from '$lib/api';
 	import Avatar from './Avatar.svelte';
 
+	const isAdmin = $derived(
+		$activeServer?.role === 'owner' || $activeServer?.role === 'admin'
+	);
+
 	type AnyMessage = Message | DirectMessage;
 
 	// Set of lowercased handles (display_name with spaces→_) for highlight matching
@@ -24,8 +28,9 @@
 
 	let {
 		messages,
-		isDM = false
-	}: { messages: AnyMessage[]; isDM?: boolean } = $props();
+		isDM = false,
+		onreply
+	}: { messages: AnyMessage[]; isDM?: boolean; onreply?: (msg: Message) => void } = $props();
 
 	let container: HTMLElement;
 	let stickToBottom = true;
@@ -62,6 +67,11 @@
 
 	function sameDay(a: string, b: string) {
 		return formatDate(a) === formatDate(b);
+	}
+
+	function replyPreview(content: string): string {
+		if (isImageUrl(content.trim())) return '[image]';
+		return content.length > 80 ? content.slice(0, 80) + '…' : content;
 	}
 
 	function isImageUrl(text: string): boolean {
@@ -116,7 +126,8 @@
 
 		{@const author = getAuthor(msg)}
 		{@const isOwn = author.id === $currentUser?.id}
-		{@const showHeader = i === 0 || getAuthor(messages[i - 1]).id !== author.id || !sameDay(messages[i-1].created_at, msg.created_at)}
+		{@const canDelete = isOwn || (!isDM && isAdmin)}
+		{@const showHeader = i === 0 || getAuthor(messages[i - 1]).id !== author.id || !sameDay(messages[i-1].created_at, msg.created_at) || !!(isMessage(msg) && msg.reply_to)}
 		{@const editing = editingId === msg.id}
 
 		<div class="message" class:editing>
@@ -125,6 +136,12 @@
 					<Avatar url={author.avatar_url} name={author.display_name} userId={author.id} size={40} />
 				</div>
 				<div class="content">
+					{#if isMessage(msg) && msg.reply_to}
+						<div class="reply-quote">
+							<span class="reply-quote-name">{msg.reply_to.author_name}</span>
+							<span class="reply-quote-text">{replyPreview(msg.reply_to.content)}</span>
+						</div>
+					{/if}
 					<div class="header">
 						<span class="name">{author.display_name}</span>
 						<span class="time">{formatTime(msg.created_at)}</span>
@@ -167,12 +184,17 @@
 				</div>
 			{/if}
 
-			{#if isOwn && !editing}
+			{#if !editing}
 				<div class="msg-actions">
-					{#if isMessage(msg)}
+					{#if isMessage(msg) && onreply}
+						<button class="action-btn" onclick={() => onreply(msg as Message)} title="Reply">↩</button>
+					{/if}
+					{#if isMessage(msg) && isOwn}
 						<button class="action-btn edit" onclick={() => startEdit(msg)} title="Edit">✏</button>
 					{/if}
-					<button class="action-btn delete" onclick={() => deleteMsg(msg)} title="Delete">✕</button>
+					{#if canDelete}
+						<button class="action-btn delete" onclick={() => deleteMsg(msg)} title="Delete">✕</button>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -230,6 +252,32 @@
 	.name { font-weight: 600; color: var(--text); font-size: 0.95rem; }
 	.time { font-size: 0.7rem; color: var(--text-muted); }
 	.edited { font-size: 0.65rem; color: var(--text-muted); font-style: italic; }
+	.reply-quote {
+		display: flex;
+		gap: 0.4rem;
+		align-items: baseline;
+		background: var(--bg-input);
+		border-left: 3px solid var(--accent);
+		border-radius: 0 4px 4px 0;
+		padding: 0.25rem 0.5rem;
+		margin-bottom: 0.25rem;
+		font-size: 0.8rem;
+		cursor: default;
+		max-width: 100%;
+		overflow: hidden;
+	}
+	.reply-quote-name {
+		color: var(--accent);
+		font-weight: 600;
+		white-space: nowrap;
+		flex-shrink: 0;
+	}
+	.reply-quote-text {
+		color: var(--text-muted);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
 	p {
 		color: var(--text);
 		font-size: 0.9rem;

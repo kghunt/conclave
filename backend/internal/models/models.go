@@ -39,13 +39,20 @@ type Channel struct {
 	UnreadCount int       `json:"unread_count,omitempty"`
 }
 
+type MessageReply struct {
+	ID         string `json:"id"`
+	Content    string `json:"content"`
+	AuthorName string `json:"author_name"`
+}
+
 type Message struct {
-	ID        string    `json:"id"`
-	ChannelID string    `json:"channel_id"`
-	Author    *User     `json:"author"`
-	Content   string    `json:"content"`
-	EditedAt  *time.Time `json:"edited_at,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        string         `json:"id"`
+	ChannelID string         `json:"channel_id"`
+	Author    *User          `json:"author"`
+	Content   string         `json:"content"`
+	ReplyTo   *MessageReply  `json:"reply_to,omitempty"`
+	EditedAt  *time.Time     `json:"edited_at,omitempty"`
+	CreatedAt time.Time      `json:"created_at"`
 }
 
 type DMConversation struct {
