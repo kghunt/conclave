@@ -198,8 +198,8 @@
 				</span>
 				<div class="header-actions">
 					{#if $activeChannel}
-						<button onclick={() => (showMembers = !showMembers)} class="icon-btn" class:active={showMembers && isMobile} title="Members">
-							&#128101;
+						<button onclick={() => (showMembers = !showMembers)} class="icon-btn" class:active={showMembers} title="Members">
+							<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
 						</button>
 					{/if}
 				</div>
@@ -326,12 +326,15 @@
 		background: none;
 		border: none;
 		cursor: pointer;
-		font-size: 1.1rem;
-		padding: 0.25rem;
+		padding: 0.35rem;
 		border-radius: 4px;
-		opacity: 0.7;
+		color: #c8c7d0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
-	.icon-btn:hover { opacity: 1; background: rgba(255,255,255,0.1); }
+	.icon-btn:hover { color: #f0eff4; background: rgba(255,255,255,0.1); }
+	.icon-btn.active { color: #e8541e; }
 	.input-area {
 		padding: 0.75rem 1rem;
 		flex-shrink: 0;
@@ -381,7 +384,6 @@
 	@media (max-width: 767px) {
 		textarea { font-size: 16px; /* prevents iOS zoom on focus */ }
 		.input-area { padding: 0.5rem; }
-		.icon-btn.active { color: #e8541e; opacity: 1; }
 		.members-overlay {
 			display: flex;
 			flex-direction: column;
