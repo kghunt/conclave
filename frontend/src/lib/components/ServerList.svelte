@@ -180,6 +180,19 @@
 		flex-direction: column;
 		gap: 0.5rem;
 	}
+	@media (max-width: 767px) {
+		.server-list { padding: 0.5rem 0; gap: 0.625rem; }
+		.server-icon { width: 52px; height: 52px; }
+		.create-panel {
+			left: 72px;
+			right: 0;
+			top: 0;
+			width: auto;
+			border-radius: 0 0 8px 0;
+			max-height: 100dvh;
+			overflow-y: auto;
+		}
+	}
 	.create-panel h3 { color: #f0eff4; margin-top: 0.5rem; font-size: 0.9rem; }
 	.create-panel input:not([type="checkbox"]) {
 		background: #26262b;

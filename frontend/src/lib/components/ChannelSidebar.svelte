@@ -118,6 +118,9 @@
 		flex-shrink: 0;
 		overflow-y: auto;
 	}
+	@media (max-width: 767px) {
+		.sidebar { width: 100%; flex: 1; }
+	}
 	.server-header {
 		padding: 0.875rem 1rem;
 		font-weight: 700;
@@ -184,6 +187,10 @@
 		margin: 0 0.25rem;
 		width: calc(100% - 0.5rem);
 		font-size: 0.9rem;
+	}
+	@media (max-width: 767px) {
+		.channel-item { padding: 0.65rem 0.75rem; font-size: 1rem; }
+		.server-header { height: 52px; font-size: 1rem; }
 	}
 	.channel-item:hover, .channel-item.active {
 		background: rgba(255,255,255,0.07);
