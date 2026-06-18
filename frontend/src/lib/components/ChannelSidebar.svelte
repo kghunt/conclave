@@ -272,21 +272,22 @@
 						class="type-btn"
 						class:active={newChannelType === 'text'}
 						onclick={() => (newChannelType = 'text')}
-					>#</button>
-					<button
-						class="type-btn"
-						class:active={newChannelType === 'voice'}
-						onclick={() => (newChannelType = 'voice')}
-					>🔊</button>
+					># Text</button>
 					<button
 						class="type-btn"
 						class:active={newChannelType === 'threads'}
 						onclick={() => (newChannelType = 'threads')}
-					>💬</button>
+					>💬 Threads</button>
+					<button
+						class="type-btn"
+						class:active={newChannelType === 'voice'}
+						onclick={() => (newChannelType = 'voice')}
+					>🔊 Voice</button>
 				</div>
 				<input
 					bind:value={newChannelName}
-					placeholder={newChannelType === 'voice' ? 'voice-channel' : 'channel-name'}
+					placeholder="channel-name"
+					autofocus
 					onkeydown={(e) => e.key === 'Enter' && createChannel()}
 				/>
 				<input
@@ -295,7 +296,7 @@
 					class="desc-input"
 					onkeydown={(e) => e.key === 'Enter' && createChannel()}
 				/>
-				<button onclick={createChannel}>Add</button>
+				<button class="add-channel-btn" onclick={createChannel}>Add</button>
 			</div>
 		{/if}
 
@@ -551,32 +552,35 @@
 	.new-channel {
 		display: flex;
 		flex-direction: column;
-		gap: 0.25rem;
-		padding: 0.25rem 0.75rem;
+		gap: 0.3rem;
+		padding: 0.4rem 0.75rem;
 	}
-	.new-channel .new-channel-type { flex-direction: row; }
 	.new-channel input {
 		background: var(--bg-input);
 		border: 1px solid var(--border);
 		color: var(--text);
-		padding: 0.25rem 0.5rem;
+		padding: 0.3rem 0.5rem;
 		border-radius: 4px;
 		font-size: 0.85rem;
+		outline: none;
 	}
+	.new-channel input:focus { border-color: var(--accent); }
 	.new-channel .desc-input {
 		font-size: 0.78rem;
 		opacity: 0.8;
 	}
-	.new-channel button { align-self: flex-end; }
-	.new-channel button {
+	.add-channel-btn {
+		align-self: flex-end;
 		background: var(--accent);
 		border: none;
 		color: white;
-		padding: 0.25rem 0.5rem;
+		padding: 0.25rem 0.65rem;
 		border-radius: 4px;
 		cursor: pointer;
-		font-size: 0.85rem;
+		font-size: 0.82rem;
+		font-weight: 600;
 	}
+	.add-channel-btn:hover { filter: brightness(1.1); }
 	.channel-item {
 		display: flex;
 		align-items: center;
@@ -814,23 +818,29 @@
 	@media (max-width: 767px) { .ch-delete-btn { opacity: 1; } }
 	.new-channel-type {
 		display: flex;
+		background: var(--bg-input);
+		border: 1px solid var(--border);
+		border-radius: 5px;
+		padding: 2px;
 		gap: 2px;
-		flex-shrink: 0;
 	}
 	.type-btn {
-		background: rgba(255,255,255,0.05);
-		border: 1px solid var(--border);
+		flex: 1;
+		background: none;
+		border: none;
 		color: var(--text-muted);
-		border-radius: 4px;
+		border-radius: 3px;
 		cursor: pointer;
-		padding: 0.2rem 0.35rem;
-		font-size: 0.8rem;
-		line-height: 1;
+		padding: 0.25rem 0.3rem;
+		font-size: 0.75rem;
+		line-height: 1.2;
+		white-space: nowrap;
+		transition: background 0.1s, color 0.1s;
 	}
+	.type-btn:hover:not(.active) { background: rgba(255,255,255,0.06); color: var(--text); }
 	.type-btn.active {
 		background: var(--accent);
 		color: white;
-		border-color: var(--accent);
 	}
 	.voice-channel-item {
 		position: relative;
