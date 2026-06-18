@@ -46,7 +46,7 @@ func main() {
 	authH := handlers.NewAuth(authSvc, pool, cfg.BaseURL, cfg.FrontendURL)
 	usersH := handlers.NewUsers(pool, cfg.AvatarDir, cfg.BaseURL, cfg.InstanceAdminEmail)
 	adminH := handlers.NewAdmin(pool, cfg.InstanceAdminEmail)
-	serversH := handlers.NewServers(pool)
+	serversH := handlers.NewServers(pool, hub)
 	channelsH := handlers.NewChannels(pool)
 	pushH := handlers.NewPush(pool, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDEmail)
 	friendsH := handlers.NewFriends(pool)
