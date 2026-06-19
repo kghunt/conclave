@@ -391,6 +391,7 @@
 {#if lightboxSrc}
 	<LightboxImage src={lightboxSrc} onclose={() => lightboxSrc = null} />
 {/if}
+</div>
 
 <style>
 	.thread-view {
