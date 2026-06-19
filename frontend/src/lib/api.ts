@@ -66,6 +66,8 @@ export const api = {
 		req<ThreadMessage>('PATCH', `/threads/${threadId}/messages/${messageId}`, { content }),
 	deleteThreadMessage: (threadId: string, messageId: string) =>
 		req<void>('DELETE', `/threads/${threadId}/messages/${messageId}`),
+	setThreadLocked: (threadId: string, locked: boolean) =>
+		req<void>('PATCH', `/threads/${threadId}/lock`, { locked }),
 	updateChannel: (serverId: string, channelId: string, data: { name?: string; description?: string }) =>
 		req<Channel>('PATCH', `/servers/${serverId}/channels/${channelId}`, data),
 	deleteChannel: (serverId: string, channelId: string) =>
@@ -298,6 +300,7 @@ export interface Thread {
 	channel_id: string;
 	title: string;
 	created_by: User;
+	locked: boolean;
 	created_at: string;
 	last_message_at: string;
 	message_count: number;

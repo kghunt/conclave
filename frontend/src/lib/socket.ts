@@ -26,6 +26,7 @@ export type WSEvent =
 	| { type: 'thread.message.new'; payload: import('./api').ThreadMessage }
 	| { type: 'thread.message.edit'; payload: import('./api').ThreadMessage }
 	| { type: 'thread.message.delete'; payload: { id: string; thread_id: string } }
+	| { type: 'thread.lock'; payload: { id: string; channel_id: string; locked: boolean } }
 	| { type: 'reaction.toggle'; payload: { message_id: string; channel_id: string; emoji: string; user_id: string; action: 'add' | 'remove' } }
 	| { type: 'reaction.new'; payload: { message_id: string; channel_id: string; emoji: string; reactor_id: string } };
 
