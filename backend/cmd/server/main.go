@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -38,6 +41,7 @@ func main() {
 	log.Println("migrations applied")
 
 	authSvc := auth.New(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.BaseURL+"/api/auth/callback", cfg.JWTSecret)
+	startupVersion := fmt.Sprintf("%d", time.Now().UnixNano())
 	hub := ws.NewHub()
 	go hub.Run()
 
@@ -68,6 +72,10 @@ func main() {
 	}))
 
 	// public (no auth)
+	r.Get("/api/version", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"version": startupVersion})
+	})
 	r.Get("/api/theme", adminH.GetTheme)
 	r.Get("/api/config", adminH.GetConfig)
 	r.Get("/api/auth/login", authH.Login)
@@ -157,6 +165,7 @@ func main() {
 		r.Get("/api/dms/conversations/{convID}/messages", dmsH.ListMessages)
 		r.Post("/api/dms/conversations/{convID}/messages", dmsH.SendMessage)
 		r.Delete("/api/dms/conversations/{convID}/messages/{messageID}", dmsH.DeleteMessage)
+		r.Post("/api/dms/conversations/{convID}/read", dmsH.MarkRead)
 
 		// file upload
 		r.Post("/api/upload", handlers.UploadFile(cfg.AvatarDir, cfg.BaseURL, pool))

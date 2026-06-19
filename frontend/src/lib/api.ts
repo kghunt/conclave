@@ -102,6 +102,8 @@ export const api = {
 	listDMMessages: (convId: string) => req<DirectMessage[]>('GET', `/dms/conversations/${convId}/messages`),
 	sendDM: (convId: string, content: string) =>
 		req<DirectMessage>('POST', `/dms/conversations/${convId}/messages`, { content }),
+	markDMRead: (convId: string) =>
+		req<void>('POST', `/dms/conversations/${convId}/read`),
 
 	// friends
 	listFriends: () => req<FriendEntry[]>('GET', '/friends'),
@@ -343,6 +345,7 @@ export interface Message {
 export interface DMConversation {
 	id: string;
 	other_user: User;
+	unread_count: number;
 	created_at: string;
 }
 

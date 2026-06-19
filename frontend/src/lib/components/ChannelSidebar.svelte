@@ -404,10 +404,14 @@
 		<button
 			class="channel-item"
 			class:active={$activeDM?.id === conv.id}
+			class:has-unread={conv.unread_count > 0 && $activeDM?.id !== conv.id}
 			onclick={() => { activeChannel.set(null); activeDM.set(conv); }}
 		>
 			<Avatar url={conv.other_user.avatar_url} name={conv.other_user.display_name} userId={conv.other_user.id} size={20} showPresence />
-			{conv.other_user.display_name}
+			<span class="dm-name">{conv.other_user.display_name}</span>
+			{#if conv.unread_count > 0 && $activeDM?.id !== conv.id}
+				<span class="badge">{conv.unread_count}</span>
+			{/if}
 		</button>
 	{/each}
 
@@ -639,6 +643,8 @@
 		background: rgba(255,255,255,0.07);
 		color: var(--text);
 	}
+	.channel-item.has-unread { color: var(--text); font-weight: 600; }
+	.dm-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	.badge {
 		margin-left: auto;
 		background: #e04545;

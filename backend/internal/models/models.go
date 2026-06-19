@@ -120,9 +120,10 @@ type Message struct {
 }
 
 type DMConversation struct {
-	ID        string    `json:"id"`
-	OtherUser *User     `json:"other_user"`
-	CreatedAt time.Time `json:"created_at"`
+	ID          string    `json:"id"`
+	OtherUser   *User     `json:"other_user"`
+	UnreadCount int       `json:"unread_count"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type DirectMessage struct {

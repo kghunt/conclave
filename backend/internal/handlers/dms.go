@@ -27,10 +27,16 @@ func (h *DMsHandler) ListConversations(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r)
 	rows, err := h.db.Query(r.Context(), `
 		SELECT dc.id, dc.created_at,
-		       u.id, u.display_name, u.bio, u.avatar_url
+		       u.id, u.display_name, u.bio, u.avatar_url,
+		       COUNT(dm.id) FILTER (
+		           WHERE dm.sender_id != $1
+		             AND dm.created_at > CASE WHEN dc.user1_id = $1 THEN dc.user1_read_at ELSE dc.user2_read_at END
+		       )::int AS unread_count
 		FROM dm_conversations dc
 		JOIN users u ON u.id = CASE WHEN dc.user1_id = $1 THEN dc.user2_id ELSE dc.user1_id END
+		LEFT JOIN direct_messages dm ON dm.conversation_id = dc.id
 		WHERE dc.user1_id = $1 OR dc.user2_id = $1
+		GROUP BY dc.id, dc.created_at, u.id, u.display_name, u.bio, u.avatar_url, dc.user1_read_at, dc.user2_read_at
 		ORDER BY dc.created_at DESC
 	`, userID)
 	if err != nil {
@@ -43,7 +49,7 @@ func (h *DMsHandler) ListConversations(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var c models.DMConversation
 		c.OtherUser = &models.User{}
-		if err := rows.Scan(&c.ID, &c.CreatedAt, &c.OtherUser.ID, &c.OtherUser.DisplayName, &c.OtherUser.Bio, &c.OtherUser.AvatarURL); err != nil {
+		if err := rows.Scan(&c.ID, &c.CreatedAt, &c.OtherUser.ID, &c.OtherUser.DisplayName, &c.OtherUser.Bio, &c.OtherUser.AvatarURL, &c.UnreadCount); err != nil {
 			continue
 		}
 		convs = append(convs, c)
@@ -231,4 +237,16 @@ func (h *DMsHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, m)
+}
+
+func (h *DMsHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.UserID(r)
+	convID := chi.URLParam(r, "convID")
+	h.db.Exec(r.Context(), `
+		UPDATE dm_conversations
+		SET user1_read_at = CASE WHEN user1_id = $1 THEN NOW() ELSE user1_read_at END,
+		    user2_read_at = CASE WHEN user2_id = $1 THEN NOW() ELSE user2_read_at END
+		WHERE id = $2 AND (user1_id = $1 OR user2_id = $1)
+	`, userID, convID)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
