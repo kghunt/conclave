@@ -1,9 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { api } from '$lib/api';
-	import { servers, activeServer, channels, activeChannel } from '$lib/stores';
 
 	type Phase = 'loading' | 'rules' | 'joining' | 'error';
 	let phase = $state<Phase>('loading');
@@ -34,15 +32,10 @@
 		phase = 'joining';
 		try {
 			const { server_id } = await api.joinByInvite(code);
-			const updated = await api.listServers();
-			servers.set(updated ?? []);
-			const joined = updated?.find((s) => s.id === server_id);
-			if (joined) {
-				activeServer.set(joined);
-				activeChannel.set(null);
-				channels.set([]);
-			}
-			goto('/');
+			// Save to localStorage so the root page's onMount selects this server on load
+			localStorage.setItem('lastServerId', server_id);
+			// Full navigation (not client-side goto) ensures a clean app init
+			window.location.replace('/');
 		} catch (e: any) {
 			phase = 'error';
 			errorMsg = e.message ?? 'Failed to join space';
