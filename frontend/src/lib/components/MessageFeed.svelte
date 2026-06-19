@@ -441,7 +441,14 @@
 	.mobile-actions { display: none; }
 	@media (max-width: 767px) {
 		.desktop-actions { display: none; }
-		.mobile-actions { display: flex; opacity: 1; }
+		.mobile-actions {
+			display: flex;
+			opacity: 1;
+			position: static;
+			transform: none;
+			align-self: center;
+			flex-shrink: 0;
+		}
 	}
 	.more-btn { font-size: 1rem; font-weight: bold; letter-spacing: 1px; }
 	.mobile-menu-overlay {
