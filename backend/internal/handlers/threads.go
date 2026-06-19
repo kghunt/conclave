@@ -301,6 +301,20 @@ func (h *ThreadsHandler) EditMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var locked bool
+	var role string
+	h.db.QueryRow(r.Context(), `
+		SELECT t.locked, COALESCE(sm.role, '')
+		FROM threads t
+		JOIN channels c ON c.id = t.channel_id
+		LEFT JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = $2
+		WHERE t.id = $1
+	`, threadID, userID).Scan(&locked, &role)
+	if locked && role != "admin" && role != "owner" {
+		writeErr(w, http.StatusForbidden, "thread is locked")
+		return
+	}
+
 	var m models.ThreadMessage
 	m.Author = &models.User{}
 	err := h.db.QueryRow(r.Context(), `
@@ -331,23 +345,32 @@ func (h *ThreadsHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 	threadID := chi.URLParam(r, "threadID")
 	userID := middleware.UserID(r)
 
-	tag, _ := h.db.Exec(r.Context(), `
-		DELETE FROM thread_messages WHERE id = $1 AND author_id = $2 AND thread_id = $3
-	`, messageID, userID, threadID)
-	if tag.RowsAffected() == 0 {
-		var role string
-		h.db.QueryRow(r.Context(), `
-			SELECT sm.role FROM thread_messages tm
-			JOIN threads t ON t.id = tm.thread_id
-			JOIN channels c ON c.id = t.channel_id
-			JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = $2
-			WHERE tm.id = $1
-		`, messageID, userID).Scan(&role)
-		if role != "owner" && role != "admin" {
+	var locked bool
+	var role string
+	h.db.QueryRow(r.Context(), `
+		SELECT t.locked, COALESCE(sm.role, '')
+		FROM threads t
+		JOIN channels c ON c.id = t.channel_id
+		LEFT JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = $2
+		WHERE t.id = $1
+	`, threadID, userID).Scan(&locked, &role)
+	isAdmin := role == "admin" || role == "owner"
+	if locked && !isAdmin {
+		writeErr(w, http.StatusForbidden, "thread is locked")
+		return
+	}
+
+	if isAdmin {
+		// Admins can delete any message directly
+		h.db.Exec(r.Context(), `DELETE FROM thread_messages WHERE id = $1 AND thread_id = $2`, messageID, threadID)
+	} else {
+		tag, _ := h.db.Exec(r.Context(), `
+			DELETE FROM thread_messages WHERE id = $1 AND author_id = $2 AND thread_id = $3
+		`, messageID, userID, threadID)
+		if tag.RowsAffected() == 0 {
 			writeErr(w, http.StatusForbidden, "not your message")
 			return
 		}
-		h.db.Exec(r.Context(), `DELETE FROM thread_messages WHERE id = $1`, messageID)
 	}
 
 	h.db.Exec(r.Context(), `
