@@ -20,9 +20,9 @@ type Config struct {
 	VAPIDPublicKey      string
 	VAPIDPrivateKey     string
 	VAPIDEmail          string
-	TURNServer          string // e.g. "turn:turn.example.com:3478"
-	TURNUsername        string
-	TURNCredential      string
+	LiveKitURL    string // e.g. wss://yourdomain.com:7880
+	LiveKitKey    string
+	LiveKitSecret string
 }
 
 func Load() (*Config, error) {
@@ -41,9 +41,9 @@ func Load() (*Config, error) {
 		VAPIDPublicKey:     env("VAPID_PUBLIC_KEY", ""),
 		VAPIDPrivateKey:    env("VAPID_PRIVATE_KEY", ""),
 		VAPIDEmail:         env("VAPID_EMAIL", "admin@localhost"),
-		TURNServer:         env("TURN_SERVER", ""),
-		TURNUsername:       env("TURN_USERNAME", ""),
-		TURNCredential:     env("TURN_CREDENTIAL", ""),
+		LiveKitURL:    env("LIVEKIT_URL", "ws://localhost:7880"),
+		LiveKitKey:    env("LIVEKIT_KEY", ""),
+		LiveKitSecret: env("LIVEKIT_SECRET", ""),
 	}
 
 	if c.DatabaseURL == "" {

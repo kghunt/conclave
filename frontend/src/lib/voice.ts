@@ -1,4 +1,12 @@
 import { get, writable } from 'svelte/store';
+import {
+	Room,
+	RoomEvent,
+	Track,
+	type RemoteParticipant,
+	LocalAudioTrack,
+	type TrackPublication,
+} from 'livekit-client';
 import { socket } from './socket';
 import type { VoicePeer } from './api';
 import { voiceParticipants, currentUser } from './stores';
@@ -14,7 +22,6 @@ export interface VoiceState {
 	echoCancellation: boolean;
 	noiseSuppression: boolean;
 	autoGainControl: boolean;
-	vadThreshold: number;
 }
 
 const DEFAULT_STATE: VoiceState = {
@@ -28,71 +35,24 @@ const DEFAULT_STATE: VoiceState = {
 	echoCancellation: true,
 	noiseSuppression: true,
 	autoGainControl: true,
-	vadThreshold: 0.015,
 };
 
 export const voiceState = writable<VoiceState>({ ...DEFAULT_STATE });
-
-// Per-peer output volume (userId → 0–2, default 1)
 export const peerVolumesStore = writable<Record<string, number>>({});
 
-// ── Module-level WebRTC/WebAudio state ────────────────────────────────────────
+// ── Module-level state ────────────────────────────────────────────────────────
 
-let channelId: string | null = null;
-let localStream: MediaStream | null = null;
-let processedStream: MediaStream | null = null;
+let livekitRoom: Room | null = null;
+let localStream: MediaStream | null = null;   // raw getUserMedia stream
+let processedStream: MediaStream | null = null; // after WebAudio gain node
 let audioCtx: AudioContext | null = null;
 let gainNode: GainNode | null = null;
 let localAnalyser: AnalyserNode | null = null;
-
-const pendingCandidates = new Map<string, RTCIceCandidateInit[]>();
-const peerAnalysers = new Map<string, AnalyserNode>();
-const peerVolumeMap = new Map<string, number>();
-
+let localAudioTrack: LocalAudioTrack | null = null;
+let channelId: string | null = null;
 let wsUnsubscribe: (() => void) | null = null;
 let vadInterval: ReturnType<typeof setInterval> | null = null;
 let prevSpeaking = new Set<string>();
-
-const FALLBACK_ICE: RTCConfiguration = {
-	iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }]
-};
-
-// Munge SDP to enable Opus in-band FEC and DTX, and cap bitrate to 32 kbps.
-// FEC encodes redundant data so a single lost packet can be reconstructed from the next one.
-// DTX stops transmitting during silence, reducing congestion.
-function mungeOpusSDP(sdp: string): string {
-	const opusMatch = sdp.match(/a=rtpmap:(\d+) opus\/48000\/2/);
-	if (!opusMatch) return sdp;
-	const pt = opusMatch[1];
-	const fmtpRe = new RegExp(`(a=fmtp:${pt} )(.+)`);
-	const fmtpMatch = sdp.match(fmtpRe);
-	const BASE = 'useinbandfec=1;usedtx=1;maxaveragebitrate=32000';
-	if (fmtpMatch) {
-		let params = fmtpMatch[2];
-		if (!params.includes('useinbandfec')) params += ';useinbandfec=1';
-		if (!params.includes('usedtx')) params += ';usedtx=1';
-		if (!params.includes('maxaveragebitrate')) params += ';maxaveragebitrate=32000';
-		return sdp.replace(fmtpRe, `$1${params}`);
-	}
-	return sdp.replace(
-		`a=rtpmap:${pt} opus/48000/2`,
-		`a=rtpmap:${pt} opus/48000/2\r\na=fmtp:${pt} ${BASE}`
-	);
-}
-
-let iceConfig: RTCConfiguration = FALLBACK_ICE;
-
-async function fetchICEConfig(): Promise<RTCConfiguration> {
-	try {
-		const res = await fetch('/api/voice/config');
-		if (!res.ok) return FALLBACK_ICE;
-		const data = await res.json();
-		if (Array.isArray(data.ice_servers) && data.ice_servers.length > 0) {
-			return { iceServers: data.ice_servers };
-		}
-	} catch {}
-	return FALLBACK_ICE;
-}
 
 // ── Sound effects ─────────────────────────────────────────────────────────────
 
@@ -101,10 +61,8 @@ function playTone(freq: number, duration: number, volume = 0.25, delay = 0) {
 		const ctx = new AudioContext();
 		const osc = ctx.createOscillator();
 		const env = ctx.createGain();
-		osc.connect(env);
-		env.connect(ctx.destination);
-		osc.type = 'sine';
-		osc.frequency.value = freq;
+		osc.connect(env); env.connect(ctx.destination);
+		osc.type = 'sine'; osc.frequency.value = freq;
 		env.gain.setValueAtTime(0, ctx.currentTime + delay);
 		env.gain.linearRampToValueAtTime(volume, ctx.currentTime + delay + 0.01);
 		env.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + duration);
@@ -113,58 +71,51 @@ function playTone(freq: number, duration: number, volume = 0.25, delay = 0) {
 		osc.onended = () => ctx.close();
 	} catch {}
 }
-
 function playSelfJoinSound() { playTone(880, 0.18, 0.25, 0); playTone(1100, 0.22, 0.2, 0.14); }
 function playPeerJoinSound() { playTone(1000, 0.14, 0.18); }
 function playPeerLeaveSound() { playTone(600, 0.14, 0.15); }
 function playSelfLeaveSound() { playTone(1100, 0.15, 0.2, 0); playTone(880, 0.2, 0.18, 0.13); }
 
-// ── VAD ───────────────────────────────────────────────────────────────────────
+// ── Local VAD (for self speaking indicator) ───────────────────────────────────
 
 function getRMS(analyser: AnalyserNode): number {
 	const buf = new Uint8Array(analyser.fftSize);
 	analyser.getByteTimeDomainData(buf);
 	let sum = 0;
-	for (const b of buf) {
-		const n = (b - 128) / 128;
-		sum += n * n;
-	}
+	for (const b of buf) { const n = (b - 128) / 128; sum += n * n; }
 	return Math.sqrt(sum / buf.length);
 }
 
-function startVAD() {
+function startLocalVAD() {
 	vadInterval = setInterval(() => {
-		const speaking = new Set<string>();
+		if (!localAnalyser) return;
 		const me = get(currentUser);
-		const threshold = get(voiceState).vadThreshold;
-
-		if (localAnalyser && me) {
-			if (getRMS(localAnalyser) > threshold) speaking.add(me.id);
-		}
-		for (const [uid, analyser] of peerAnalysers) {
-			if (getRMS(analyser) > threshold) speaking.add(uid);
-		}
-
-		const changed =
-			speaking.size !== prevSpeaking.size || [...speaking].some((id) => !prevSpeaking.has(id));
-		if (changed) {
-			prevSpeaking = speaking;
-			voiceState.update((s) => ({ ...s, speakingUsers: new Set(speaking) }));
-		}
+		if (!me) return;
+		const speaking = getRMS(localAnalyser) > 0.015;
+		voiceState.update((s) => {
+			const next = new Set(s.speakingUsers);
+			if (speaking) next.add(me.id); else next.delete(me.id);
+			return { ...s, speakingUsers: next };
+		});
 	}, 80);
 }
 
-function stopVAD() {
+function stopLocalVAD() {
 	if (vadInterval !== null) { clearInterval(vadInterval); vadInterval = null; }
 	prevSpeaking = new Set();
-	voiceState.update((s) => ({ ...s, speakingUsers: new Set() }));
 }
 
-async function addPendingCandidates(peerId: string, pc: RTCPeerConnection) {
-	for (const c of pendingCandidates.get(peerId) ?? []) {
-		try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
-	}
-	pendingCandidates.delete(peerId);
+// ── Participant helpers ───────────────────────────────────────────────────────
+
+function participantToPeer(p: RemoteParticipant): VoicePeer {
+	let avatarUrl = '';
+	try { avatarUrl = JSON.parse(p.metadata ?? '{}').avatar_url ?? ''; } catch {}
+	return { user_id: p.identity, display_name: p.name ?? p.identity, avatar_url: avatarUrl };
+}
+
+function peersFromRoom(): VoicePeer[] {
+	if (!livekitRoom) return [];
+	return [...livekitRoom.remoteParticipants.values()].map(participantToPeer);
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -174,9 +125,18 @@ export async function joinVoice(chId: string, srvId: string): Promise<void> {
 
 	voiceState.update((s) => ({ ...s, connecting: true }));
 
-	// Fetch ICE config (includes TURN if configured server-side) before touching media
-	iceConfig = await fetchICEConfig();
+	// Fetch LiveKit token from our backend
+	let livekitToken: string, livekitURL: string;
+	try {
+		const res = await fetch(`/api/voice/token?channel=${chId}`);
+		if (!res.ok) throw new Error(await res.text());
+		({ token: livekitToken, url: livekitURL } = await res.json());
+	} catch (e: any) {
+		voiceState.update((s) => ({ ...s, connecting: false }));
+		throw new Error(e.message ?? 'Failed to get voice token');
+	}
 
+	// Capture mic and build WebAudio gain pipeline so the gain slider still works
 	const cur = get(voiceState);
 	try {
 		localStream = await navigator.mediaDevices.getUserMedia({
@@ -192,128 +152,132 @@ export async function joinVoice(chId: string, srvId: string): Promise<void> {
 		throw new Error('Microphone access denied');
 	}
 
-	// 48 kHz matches Opus natively; 'interactive' minimises processing latency
 	audioCtx = new AudioContext({ latencyHint: 'interactive', sampleRate: 48000 });
 	await audioCtx.resume();
-
 	const source = audioCtx.createMediaStreamSource(localStream);
 	gainNode = audioCtx.createGain();
 	gainNode.gain.value = cur.micGain;
-
 	localAnalyser = audioCtx.createAnalyser();
 	localAnalyser.fftSize = 256;
-
 	source.connect(gainNode);
 	source.connect(localAnalyser);
-
 	const dest = audioCtx.createMediaStreamDestination();
 	gainNode.connect(dest);
 	processedStream = dest.stream;
 
-	channelId = chId;
-	voiceState.update((s) => ({
-		...s,
-		channelId: chId,
-		serverId: srvId,
-		muted: false,
-		connecting: true,
-		peers: [],
-	}));
+	// Wrap the processed track as a LiveKit LocalAudioTrack
+	localAudioTrack = new LocalAudioTrack(processedStream.getAudioTracks()[0], undefined, false);
 
-	startVAD();
-	socket.subscribe('channel:' + chId);
+	// Create and configure the LiveKit room
+	livekitRoom = new Room({ adaptiveStream: true, dynacast: true });
 
-	wsUnsubscribe = socket.on((event) => {
-		if (event.type === 'voice.state') {
-			if (event.payload.channel_id !== channelId) return;
-			handleVoiceState(event.payload.peers);
-			voiceState.update((s) => ({ ...s, connecting: false, peers: event.payload.peers }));
-			playSelfJoinSound();
-		} else if (event.type === 'voice.joined') {
-			if (event.payload.channel_id !== channelId) return;
-			voiceState.update((s) => ({
-				...s,
-				peers: [...s.peers.filter((p) => p.user_id !== event.payload.user.user_id), event.payload.user]
-			}));
-			playPeerJoinSound();
-		} else if (event.type === 'voice.left') {
-			if (event.payload.channel_id !== channelId) return;
-			cleanupRealPeer(event.payload.user_id);
-			voiceState.update((s) => ({
-				...s,
-				peers: s.peers.filter((p) => p.user_id !== event.payload.user_id)
-			}));
-			playPeerLeaveSound();
-		} else if (event.type === 'voice.signal') {
-			if (event.payload.channel_id !== channelId) return;
-			handleSignal(event.payload.from, event.payload.signal as unknown as IncomingSignal);
-		}
+	livekitRoom.on(RoomEvent.ParticipantConnected, (p: RemoteParticipant) => {
+		const peer = participantToPeer(p);
+		voiceState.update((s) => ({
+			...s,
+			peers: [...s.peers.filter((x) => x.user_id !== peer.user_id), peer],
+		}));
+		voiceParticipants.update((vp) => ({
+			...vp,
+			[chId]: [...(vp[chId] ?? []).filter((x) => x.user_id !== peer.user_id), peer],
+		}));
+		playPeerJoinSound();
 	});
 
+	livekitRoom.on(RoomEvent.ParticipantDisconnected, (p: RemoteParticipant) => {
+		voiceState.update((s) => ({
+			...s,
+			peers: s.peers.filter((x) => x.user_id !== p.identity),
+		}));
+		voiceParticipants.update((vp) => ({
+			...vp,
+			[chId]: (vp[chId] ?? []).filter((x) => x.user_id !== p.identity),
+		}));
+		playPeerLeaveSound();
+	});
+
+	livekitRoom.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+		if (track.kind !== Track.Kind.Audio) return;
+		const el = track.attach();
+		el.id = `voice-peer-${participant.identity}`;
+		el.style.display = 'none';
+		document.body.appendChild(el);
+		// Apply saved volume preference
+		const vol = get(peerVolumesStore)[participant.identity];
+		if (vol !== undefined) el.volume = Math.min(vol, 1);
+	});
+
+	livekitRoom.on(RoomEvent.TrackUnsubscribed, (track) => {
+		track.detach().forEach((el) => el.remove());
+	});
+
+	// LiveKit tells us who's speaking (remote participants)
+	livekitRoom.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+		voiceState.update((s) => {
+			const next = new Set<string>();
+			// Keep local speaking state from VAD
+			const me = get(currentUser);
+			if (me && s.speakingUsers.has(me.id)) next.add(me.id);
+			for (const sp of speakers) {
+				if (sp.identity !== get(currentUser)?.id) next.add(sp.identity);
+			}
+			return { ...s, speakingUsers: next };
+		});
+	});
+
+	livekitRoom.on(RoomEvent.Disconnected, () => {
+		if (channelId) leaveVoice();
+	});
+
+	channelId = chId;
+	voiceState.update((s) => ({ ...s, channelId: chId, serverId: srvId }));
+
+	startLocalVAD();
+	socket.subscribe('channel:' + chId);
+
+	// Keep WS voice.join so observers (not in the call) see participant display update
+	wsUnsubscribe = socket.on(() => {});
 	socket.send('voice.join', { channel_id: chId });
-}
 
-async function handleVoiceState(peers: VoicePeer[]) {
-	for (const peer of peers) {
-		const pc = createRealPC(peer.user_id);
-		try {
-			const offer = await pc.createOffer();
-			const mungedOffer = { ...offer, sdp: mungeOpusSDP(offer.sdp ?? '') };
-			await pc.setLocalDescription(mungedOffer);
-			socket.send('voice.signal', { channel_id: channelId, to: peer.user_id, signal: mungedOffer });
-		} catch {}
+	await livekitRoom.connect(livekitURL, livekitToken);
+	await livekitRoom.localParticipant.publishTrack(localAudioTrack);
+
+	// Populate initial peer list from room state
+	const initialPeers = peersFromRoom();
+	voiceState.update((s) => ({ ...s, connecting: false, peers: initialPeers }));
+	voiceParticipants.update((vp) => ({ ...vp, [chId]: initialPeers }));
+
+	// Add self to voiceParticipants for the sidebar
+	const me = get(currentUser);
+	if (me) {
+		const self: VoicePeer = { user_id: me.id, display_name: me.display_name, avatar_url: me.avatar_url ?? '' };
+		voiceParticipants.update((vp) => ({
+			...vp,
+			[chId]: [...(vp[chId] ?? []).filter((x) => x.user_id !== me.id), self],
+		}));
 	}
-}
 
-type IncomingSignal =
-	| { type: 'offer'; sdp: string }
-	| { type: 'answer'; sdp: string }
-	| { type: 'candidate'; candidate: RTCIceCandidateInit };
-
-async function handleSignal(fromId: string, signal: IncomingSignal) {
-	if (!channelId) return;
-
-	if (signal.type === 'offer') {
-		let pc = realPeerMap.get(fromId);
-		if (!pc) pc = createRealPC(fromId);
-		try {
-			await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: signal.sdp }));
-			await addPendingCandidates(fromId, pc);
-			const answer = await pc.createAnswer();
-			const mungedAnswer = { ...answer, sdp: mungeOpusSDP(answer.sdp ?? '') };
-			await pc.setLocalDescription(mungedAnswer);
-			socket.send('voice.signal', { channel_id: channelId, to: fromId, signal: mungedAnswer });
-		} catch {}
-	} else if (signal.type === 'answer') {
-		const pc = realPeerMap.get(fromId);
-		if (pc && pc.signalingState !== 'stable') {
-			try {
-				await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: signal.sdp }));
-				await addPendingCandidates(fromId, pc);
-			} catch {}
-		}
-	} else if (signal.type === 'candidate') {
-		const pc = realPeerMap.get(fromId);
-		if (pc && pc.remoteDescription) {
-			try { await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)); } catch {}
-		} else {
-			const buf = pendingCandidates.get(fromId) ?? [];
-			buf.push(signal.candidate);
-			pendingCandidates.set(fromId, buf);
-		}
-	}
+	playSelfJoinSound();
 }
 
 export function leaveVoice() {
 	if (!channelId) return;
 	playSelfLeaveSound();
 	const ch = channelId;
+	channelId = null;
+
 	socket.send('voice.leave', { channel_id: ch });
 	socket.unsubscribe('channel:' + ch);
 	wsUnsubscribe?.();
 	wsUnsubscribe = null;
-	stopVAD();
-	cleanupAllRealPeers();
+
+	stopLocalVAD();
+
+	localAudioTrack?.stop();
+	localAudioTrack = null;
+	livekitRoom?.disconnect();
+	livekitRoom = null;
+
 	localStream?.getTracks().forEach((t) => t.stop());
 	processedStream?.getTracks().forEach((t) => t.stop());
 	audioCtx?.close();
@@ -322,16 +286,13 @@ export function leaveVoice() {
 	audioCtx = null;
 	gainNode = null;
 	localAnalyser = null;
-	peerAnalysers.clear();
-	peerVolumeMap.clear();
 	peerVolumesStore.set({});
-	channelId = null;
+
 	voiceState.update((s) => ({
 		...DEFAULT_STATE,
 		echoCancellation: s.echoCancellation,
 		noiseSuppression: s.noiseSuppression,
 		autoGainControl: s.autoGainControl,
-		vadThreshold: s.vadThreshold,
 		micGain: s.micGain,
 	}));
 }
@@ -350,132 +311,59 @@ export function setMicGain(value: number) {
 }
 
 export function setPeerVolume(userId: string, value: number) {
-	peerVolumeMap.set(userId, value);
 	peerVolumesStore.update((m) => ({ ...m, [userId]: value }));
 	const el = document.getElementById(`voice-peer-${userId}`) as HTMLAudioElement | null;
-	if (el) el.volume = value;
+	// Clamp to 0–1 for the HTML audio element; values >1 can't be boosted here
+	if (el) el.volume = Math.min(value, 1);
 }
 
-export function setVADThreshold(value: number) {
-	voiceState.update((s) => ({ ...s, vadThreshold: value }));
-}
-
-async function applyAudioConstraints(ec: boolean, ns: boolean, agc: boolean) {
-	if (!localStream) return;
-	const track = localStream.getAudioTracks()[0];
-	if (!track) return;
-	try {
-		await track.applyConstraints({ echoCancellation: ec, noiseSuppression: ns, autoGainControl: agc });
-	} catch { /* browser may not support all constraints */ }
-}
-
-export function setEchoCancellation(value: boolean) {
+export async function setEchoCancellation(value: boolean) {
 	voiceState.update((s) => ({ ...s, echoCancellation: value }));
-	const s = get(voiceState);
-	applyAudioConstraints(value, s.noiseSuppression, s.autoGainControl);
+	await restartMic();
 }
 
-export function setNoiseSuppression(value: boolean) {
+export async function setNoiseSuppression(value: boolean) {
 	voiceState.update((s) => ({ ...s, noiseSuppression: value }));
-	const s = get(voiceState);
-	applyAudioConstraints(s.echoCancellation, value, s.autoGainControl);
+	await restartMic();
 }
 
-export function setAutoGainControl(value: boolean) {
+export async function setAutoGainControl(value: boolean) {
 	voiceState.update((s) => ({ ...s, autoGainControl: value }));
-	const s = get(voiceState);
-	applyAudioConstraints(s.echoCancellation, s.noiseSuppression, value);
+	await restartMic();
 }
 
-// ── Peer connections ──────────────────────────────────────────────────────────
+async function restartMic() {
+	if (!livekitRoom || !audioCtx || !gainNode) return;
+	const cur = get(voiceState);
+	try {
+		const newStream = await navigator.mediaDevices.getUserMedia({
+			audio: {
+				echoCancellation: cur.echoCancellation,
+				noiseSuppression: cur.noiseSuppression,
+				autoGainControl: cur.autoGainControl,
+			},
+			video: false,
+		});
+		const oldStream = localStream;
+		localStream = newStream;
 
-const realPeerMap = new Map<string, RTCPeerConnection>();
+		// Reconnect WebAudio pipeline to new stream
+		const newSource = audioCtx.createMediaStreamSource(newStream);
+		newSource.connect(gainNode);
+		if (localAnalyser) newSource.connect(localAnalyser);
 
-function createRealPC(peerId: string): RTCPeerConnection {
-	const pc = new RTCPeerConnection(iceConfig);
-
-	pc.onicecandidate = (e) => {
-		if (e.candidate && channelId) {
-			socket.send('voice.signal', {
-				channel_id: channelId,
-				to: peerId,
-				signal: { type: 'candidate', candidate: e.candidate }
-			});
+		// Replace the published track
+		if (localAudioTrack && processedStream) {
+			const newTrack = new LocalAudioTrack(processedStream.getAudioTracks()[0], undefined, false);
+			await livekitRoom.localParticipant.unpublishTrack(localAudioTrack);
+			localAudioTrack.stop();
+			localAudioTrack = newTrack;
+			await livekitRoom.localParticipant.publishTrack(localAudioTrack);
 		}
-	};
 
-	pc.ontrack = (e) => {
-		const stream = e.streams[0];
-		let el = document.getElementById(`voice-peer-${peerId}`) as HTMLAudioElement | null;
-		if (!el) {
-			el = document.createElement('audio');
-			el.id = `voice-peer-${peerId}`;
-			el.autoplay = true;
-			el.style.display = 'none';
-			document.body.appendChild(el);
-		}
-		el.srcObject = stream;
-		el.volume = peerVolumeMap.get(peerId) ?? 1;
-
-		if (audioCtx) {
-			try {
-				const src = audioCtx.createMediaStreamSource(stream);
-				const analyser = audioCtx.createAnalyser();
-				analyser.fftSize = 256;
-				src.connect(analyser);
-				peerAnalysers.set(peerId, analyser);
-			} catch {}
-		}
-	};
-
-	pc.onconnectionstatechange = () => {
-		if (pc.connectionState === 'connected') {
-			// Belt-and-suspenders bitrate cap via setParameters (works in browsers that don't honour SDP fmtp)
-			for (const sender of pc.getSenders()) {
-				if (sender.track?.kind !== 'audio') continue;
-				const params = sender.getParameters();
-				if (params.encodings?.length) {
-					params.encodings[0].maxBitrate = 32_000;
-				}
-				sender.setParameters(params).catch(() => {});
-			}
-		}
-		if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
-			cleanupRealPeer(peerId);
-			// Remove the stuck peer from the participant display
-			const ch = channelId;
-			if (ch) {
-				voiceParticipants.update((vp) => ({
-					...vp,
-					[ch]: (vp[ch] ?? []).filter((p) => p.user_id !== peerId)
-				}));
-				voiceState.update((s) => ({
-					...s,
-					peers: s.peers.filter((p) => p.user_id !== peerId)
-				}));
-			}
-		}
-	};
-
-	realPeerMap.set(peerId, pc);
-
-	if (processedStream) {
-		for (const track of processedStream.getTracks()) {
-			pc.addTrack(track, processedStream);
-		}
-	}
-
-	return pc;
+		oldStream?.getTracks().forEach((t) => t.stop());
+	} catch {}
 }
 
-function cleanupRealPeer(peerId: string) {
-	realPeerMap.get(peerId)?.close();
-	realPeerMap.delete(peerId);
-	pendingCandidates.delete(peerId);
-	peerAnalysers.delete(peerId);
-	document.getElementById(`voice-peer-${peerId}`)?.remove();
-}
-
-function cleanupAllRealPeers() {
-	for (const id of [...realPeerMap.keys()]) cleanupRealPeer(id);
-}
+// Unused exports kept for type compatibility with VoicePanel
+export function setVADThreshold(_value: number) {}

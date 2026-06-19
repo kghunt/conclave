@@ -1,0 +1,9 @@
+port: 7880
+
+rtc:
+  udp_port: 7882
+  # Set node_ip to your server's public IP if LiveKit can't detect it automatically.
+  # node_ip: 1.2.3.4
+
+logging:
+  level: info

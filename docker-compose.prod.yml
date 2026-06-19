@@ -44,6 +44,19 @@ services:
       redis:
         condition: service_healthy
 
+  livekit:
+    image: livekit/livekit-server:latest
+    restart: unless-stopped
+    command: --config /etc/livekit.yaml
+    environment:
+      # Format: "LIVEKIT_KEY: LIVEKIT_SECRET" — both come from your .env file
+      LIVEKIT_KEYS: "${LIVEKIT_KEY}: ${LIVEKIT_SECRET}"
+    ports:
+      - "7880:7880"      # WebSocket signaling — proxy through NPM
+      - "7882:7882/udp"  # WebRTC media — forward directly, bypass NPM
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+
 volumes:
   postgres_data:
   redis_data:

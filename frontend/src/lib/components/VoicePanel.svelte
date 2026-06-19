@@ -1,7 +1,7 @@
 <script lang="ts">
 	import {
 		voiceState, leaveVoice, toggleMute, setMicGain, setPeerVolume, peerVolumesStore,
-		setEchoCancellation, setNoiseSuppression, setAutoGainControl, setVADThreshold
+		setEchoCancellation, setNoiseSuppression, setAutoGainControl
 	} from '$lib/voice';
 	import { channels, currentUser, voiceParticipants } from '$lib/stores';
 	import { get } from 'svelte/store';
@@ -21,9 +21,6 @@
 		setPeerVolume(userId, +(e.target as HTMLInputElement).value);
 	}
 
-	function onVAD(e: Event) {
-		setVADThreshold(+(e.target as HTMLInputElement).value);
-	}
 </script>
 
 {#if $voiceState.channelId}
@@ -99,12 +96,7 @@
 						onclick={() => setAutoGainControl(!$voiceState.autoGainControl)}
 					>{$voiceState.autoGainControl ? 'On' : 'Off'}</button>
 				</div>
-				<div class="settings-row vad-row">
-					<span class="settings-label">Mic sensitivity</span>
-					<input class="vol-slider" type="range" min="0.005" max="0.06" step="0.005"
-						value={$voiceState.vadThreshold} oninput={onVAD} title="Voice activity detection sensitivity" />
-				</div>
-				<p class="settings-note">Changes apply immediately. Restart a call to apply EC/NS/AGC if the browser doesn't support live updates.</p>
+				<p class="settings-note">EC/NS/AGC changes restart the mic briefly. Handled by your browser.</p>
 			</div>
 		{/if}
 
@@ -245,10 +237,6 @@
 		margin: 2px 0 0;
 		line-height: 1.4;
 	}
-	.vad-row { justify-content: initial; }
-	.vad-row .settings-label { flex: none; white-space: nowrap; }
-	.vad-row .vol-slider { flex: 1; }
-
 	.voice-peers { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
 	.voice-peer { display: flex; align-items: center; gap: 5px; padding: 2px 0; border-radius: 4px; }
 	.speak-dot {
