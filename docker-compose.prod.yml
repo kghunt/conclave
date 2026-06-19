@@ -47,15 +47,17 @@ services:
   livekit:
     image: livekit/livekit-server:latest
     restart: unless-stopped
-    command: --config /livekit.yaml
     environment:
-      # Format: "LIVEKIT_KEY: LIVEKIT_SECRET" — both come from your .env file
       LIVEKIT_KEYS: "${LIVEKIT_KEY}: ${LIVEKIT_SECRET}"
+      LIVEKIT_CONFIG: |
+        port: 7880
+        rtc:
+          udp_port: 7882
+        logging:
+          level: info
     ports:
-      - "7880:7880"      # WebSocket signaling — proxy through NPM
-      - "7882:7882/udp"  # WebRTC media — forward directly, bypass NPM
-    volumes:
-      - ./livekit.yaml:/livekit.yaml:ro
+      - "7880:7880"
+      - "7882:7882/udp"
 
 volumes:
   postgres_data:
