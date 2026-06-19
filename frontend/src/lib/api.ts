@@ -60,8 +60,8 @@ export const api = {
 		req<Thread>('POST', `/servers/${serverId}/channels/${channelId}/threads`, { title, initial_message: initialMessage || undefined }),
 	listThreadMessages: (threadId: string) =>
 		req<ThreadMessage[]>('GET', `/threads/${threadId}/messages`),
-	sendThreadMessage: (threadId: string, content: string) =>
-		req<ThreadMessage>('POST', `/threads/${threadId}/messages`, { content }),
+	sendThreadMessage: (threadId: string, content: string, replyToId?: string) =>
+		req<ThreadMessage>('POST', `/threads/${threadId}/messages`, { content, reply_to_id: replyToId }),
 	editThreadMessage: (threadId: string, messageId: string, content: string) =>
 		req<ThreadMessage>('PATCH', `/threads/${threadId}/messages/${messageId}`, { content }),
 	deleteThreadMessage: (threadId: string, messageId: string) =>
@@ -306,6 +306,7 @@ export interface ThreadMessage {
 	thread_id: string;
 	author: User;
 	content: string;
+	reply_to?: { id: string; content: string; author_name: string };
 	created_at: string;
 	edited_at?: string;
 }

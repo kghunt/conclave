@@ -87,12 +87,13 @@ type Thread struct {
 }
 
 type ThreadMessage struct {
-	ID        string     `json:"id"`
-	ThreadID  string     `json:"thread_id"`
-	Author    *User      `json:"author"`
-	Content   string     `json:"content"`
-	CreatedAt time.Time  `json:"created_at"`
-	EditedAt  *time.Time `json:"edited_at,omitempty"`
+	ID        string         `json:"id"`
+	ThreadID  string         `json:"thread_id"`
+	Author    *User          `json:"author"`
+	Content   string         `json:"content"`
+	ReplyTo   *MessageReply  `json:"reply_to,omitempty"`
+	CreatedAt time.Time      `json:"created_at"`
+	EditedAt  *time.Time     `json:"edited_at,omitempty"`
 }
 
 type MessageReply struct {
