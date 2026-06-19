@@ -4,6 +4,8 @@
 	import { socket } from '$lib/socket';
 	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent, instanceConfig, serverMembers, mentionedChannels, presenceMap, notifPrefs, serverUnread, homeMode } from '$lib/stores';
 	import { playMessageSound, playMentionSound, playDMSound } from '$lib/sounds';
+	import { handleIncomingCall, handleCallAccepted, handleCallDeclined, handleCallEnded, handleCallCancelled } from '$lib/voice';
+	import CallNotification from '$lib/components/CallNotification.svelte';
 	import type { ServerMember } from '$lib/api';
 	import ServerList from '$lib/components/ServerList.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
@@ -303,6 +305,23 @@
 					friendRequestsSent.set(sent ?? []);
 				});
 			}
+			if (event.type === 'call.ring') {
+				handleIncomingCall(event.payload.conv_id, {
+					userId: event.payload.from_user_id,
+					displayName: event.payload.from_display_name,
+					avatarUrl: event.payload.from_avatar_url,
+				});
+			}
+			if (event.type === 'call.accepted') {
+				handleCallAccepted(
+					event.payload.conv_id,
+					event.payload.from_display_name,
+					event.payload.from_user_id,
+				);
+			}
+			if (event.type === 'call.declined') handleCallDeclined();
+			if (event.type === 'call.ended')   handleCallEnded();
+			if (event.type === 'call.cancelled') handleCallCancelled();
 			if (event.type === 'mention.new') {
 				const chId = event.payload.channel_id;
 				if ($activeChannel?.id !== chId) {
@@ -681,6 +700,8 @@
 {#if $showProfileModal}
 	<ProfileModal onclose={() => showProfileModal.set(false)} />
 {/if}
+
+<CallNotification />
 
 <style>
 	:global(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }

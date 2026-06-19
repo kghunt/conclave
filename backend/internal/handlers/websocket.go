@@ -157,6 +157,87 @@ func (h *WSHandler) onEvent(c *ws.Client, event ws.Event) {
 			h.hub.Broadcast("server:"+svrID, ws.Event{Type: "voice.left", Payload: leftPayload})
 		}
 
+	case "call.ring":
+		var body struct {
+			ToUserID string `json:"to_user_id"`
+			ConvID   string `json:"conv_id"`
+		}
+		if err := json.Unmarshal(event.Payload, &body); err != nil || body.ToUserID == "" || body.ConvID == "" {
+			return
+		}
+		// Verify they are friends
+		var areFriends bool
+		h.db.QueryRow(context.Background(), `
+			SELECT EXISTS(
+				SELECT 1 FROM friendships
+				WHERE ((requester_id = $1 AND addressee_id = $2) OR (requester_id = $2 AND addressee_id = $1))
+				AND status = 'accepted'
+			)
+		`, c.UserID(), body.ToUserID).Scan(&areFriends)
+		if !areFriends {
+			return
+		}
+		var displayName, avatarURL string
+		h.db.QueryRow(context.Background(), `SELECT display_name, COALESCE(avatar_url,'') FROM users WHERE id=$1`, c.UserID()).
+			Scan(&displayName, &avatarURL)
+		ringPayload, _ := json.Marshal(map[string]string{
+			"conv_id":           body.ConvID,
+			"from_user_id":      c.UserID(),
+			"from_display_name": displayName,
+			"from_avatar_url":   avatarURL,
+		})
+		h.hub.Broadcast("user:"+body.ToUserID, ws.Event{Type: "call.ring", Payload: ringPayload})
+
+	case "call.accept":
+		var body struct {
+			ConvID   string `json:"conv_id"`
+			CallerID string `json:"caller_id"`
+		}
+		if err := json.Unmarshal(event.Payload, &body); err != nil || body.CallerID == "" {
+			return
+		}
+		var displayName string
+		h.db.QueryRow(context.Background(), `SELECT display_name FROM users WHERE id=$1`, c.UserID()).Scan(&displayName)
+		acceptPayload, _ := json.Marshal(map[string]string{
+			"conv_id":              body.ConvID,
+			"from_user_id":        c.UserID(),
+			"from_display_name":   displayName,
+		})
+		h.hub.Broadcast("user:"+body.CallerID, ws.Event{Type: "call.accepted", Payload: acceptPayload})
+
+	case "call.decline":
+		var body struct {
+			ConvID   string `json:"conv_id"`
+			CallerID string `json:"caller_id"`
+		}
+		if err := json.Unmarshal(event.Payload, &body); err != nil || body.CallerID == "" {
+			return
+		}
+		declinePayload, _ := json.Marshal(map[string]string{"conv_id": body.ConvID})
+		h.hub.Broadcast("user:"+body.CallerID, ws.Event{Type: "call.declined", Payload: declinePayload})
+
+	case "call.end":
+		var body struct {
+			ConvID      string `json:"conv_id"`
+			OtherUserID string `json:"other_user_id"`
+		}
+		if err := json.Unmarshal(event.Payload, &body); err != nil || body.OtherUserID == "" {
+			return
+		}
+		endPayload, _ := json.Marshal(map[string]string{"conv_id": body.ConvID})
+		h.hub.Broadcast("user:"+body.OtherUserID, ws.Event{Type: "call.ended", Payload: endPayload})
+
+	case "call.cancel":
+		var body struct {
+			ToUserID string `json:"to_user_id"`
+			ConvID   string `json:"conv_id"`
+		}
+		if err := json.Unmarshal(event.Payload, &body); err != nil || body.ToUserID == "" {
+			return
+		}
+		cancelPayload, _ := json.Marshal(map[string]string{"conv_id": body.ConvID})
+		h.hub.Broadcast("user:"+body.ToUserID, ws.Event{Type: "call.cancelled", Payload: cancelPayload})
+
 	}
 }
 

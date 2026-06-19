@@ -8,10 +8,16 @@ import {
 } from 'livekit-client';
 import { socket } from './socket';
 import type { VoicePeer } from './api';
+import { api } from './api';
 import { voiceParticipants, currentUser } from './stores';
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+
 export interface VoiceState {
-	channelId: string | null;
+	channelId: string | null;   // set for channel calls
+	dmConvId: string | null;    // set for DM calls
+	dmPeerUserId: string | null;
+	label: string;              // display name in VoicePanel
 	serverId: string | null;
 	muted: boolean;
 	connecting: boolean;
@@ -23,8 +29,17 @@ export interface VoiceState {
 	autoGainControl: boolean;
 }
 
-const DEFAULT_STATE: VoiceState = {
+export interface CallState {
+	status: 'idle' | 'ringing_out' | 'ringing_in';
+	convId: string | null;
+	peer: { userId: string; displayName: string; avatarUrl: string } | null;
+}
+
+const DEFAULT_VOICE: VoiceState = {
 	channelId: null,
+	dmConvId: null,
+	dmPeerUserId: null,
+	label: '',
 	serverId: null,
 	muted: false,
 	connecting: false,
@@ -36,22 +51,26 @@ const DEFAULT_STATE: VoiceState = {
 	autoGainControl: true,
 };
 
-export const voiceState = writable<VoiceState>({ ...DEFAULT_STATE });
+export const voiceState = writable<VoiceState>({ ...DEFAULT_VOICE });
 export const peerVolumesStore = writable<Record<string, number>>({});
+export const callState = writable<CallState>({ status: 'idle', convId: null, peer: null });
 
 // ── Module-level state ────────────────────────────────────────────────────────
 
 let livekitRoom: Room | null = null;
-let localStream: MediaStream | null = null;   // raw getUserMedia stream
-let processedStream: MediaStream | null = null; // after WebAudio gain node
+let localStream: MediaStream | null = null;
+let processedStream: MediaStream | null = null;
 let audioCtx: AudioContext | null = null;
 let gainNode: GainNode | null = null;
 let localAnalyser: AnalyserNode | null = null;
 let localAudioTrack: LocalAudioTrack | null = null;
 let channelId: string | null = null;
+let dmConvId: string | null = null;
+let dmPeerUserId: string | null = null;
 let wsUnsubscribe: (() => void) | null = null;
 let vadInterval: ReturnType<typeof setInterval> | null = null;
-let prevSpeaking = new Set<string>();
+let ringInterval: ReturnType<typeof setInterval> | null = null;
+let ringTimeout: ReturnType<typeof setTimeout> | null = null;
 
 // ── Sound effects ─────────────────────────────────────────────────────────────
 
@@ -74,8 +93,35 @@ function playSelfJoinSound() { playTone(880, 0.18, 0.25, 0); playTone(1100, 0.22
 function playPeerJoinSound() { playTone(1000, 0.14, 0.18); }
 function playPeerLeaveSound() { playTone(600, 0.14, 0.15); }
 function playSelfLeaveSound() { playTone(1100, 0.15, 0.2, 0); playTone(880, 0.2, 0.18, 0.13); }
+function playRingTone() {
+	playTone(880, 0.15, 0.2, 0);
+	playTone(880, 0.15, 0.2, 0.2);
+}
+function playIncomingRing() {
+	playTone(1200, 0.12, 0.25, 0);
+	playTone(1000, 0.12, 0.2, 0.15);
+	playTone(1200, 0.12, 0.25, 0.3);
+}
 
-// ── Local VAD (for self speaking indicator) ───────────────────────────────────
+// ── Ring management ───────────────────────────────────────────────────────────
+
+function startOutgoingRing() {
+	playRingTone();
+	ringInterval = setInterval(playRingTone, 3000);
+	ringTimeout = setTimeout(() => cancelCall(), 30000);
+}
+
+function startIncomingRing() {
+	playIncomingRing();
+	ringInterval = setInterval(playIncomingRing, 3000);
+}
+
+export function stopRinging() {
+	if (ringInterval !== null) { clearInterval(ringInterval); ringInterval = null; }
+	if (ringTimeout !== null) { clearTimeout(ringTimeout); ringTimeout = null; }
+}
+
+// ── Local VAD + remote speaking poll ─────────────────────────────────────────
 
 function getRMS(analyser: AnalyserNode): number {
 	const buf = new Uint8Array(analyser.fftSize);
@@ -90,12 +136,10 @@ function startLocalVAD() {
 		const me = get(currentUser);
 		voiceState.update((s) => {
 			const next = new Set(s.speakingUsers);
-			// Self: WebAudio analyser (processed stream doesn't report to LiveKit)
 			if (me && localAnalyser) {
 				if (getRMS(localAnalyser) > 0.015) next.add(me.id);
 				else next.delete(me.id);
 			}
-			// Remote: poll LiveKit's cached isSpeaking (updated server-side ~200ms)
 			if (livekitRoom) {
 				for (const p of livekitRoom.remoteParticipants.values()) {
 					if (p.isSpeaking) next.add(p.identity);
@@ -109,7 +153,6 @@ function startLocalVAD() {
 
 function stopLocalVAD() {
 	if (vadInterval !== null) { clearInterval(vadInterval); vadInterval = null; }
-	prevSpeaking = new Set();
 }
 
 // ── Participant helpers ───────────────────────────────────────────────────────
@@ -125,57 +168,9 @@ function peersFromRoom(): VoicePeer[] {
 	return [...livekitRoom.remoteParticipants.values()].map(participantToPeer);
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
+// ── Shared LiveKit room setup ─────────────────────────────────────────────────
 
-export async function joinVoice(chId: string, srvId: string): Promise<void> {
-	if (channelId) leaveVoice();
-
-	voiceState.update((s) => ({ ...s, connecting: true }));
-
-	// Fetch LiveKit token from our backend
-	let livekitToken: string, livekitURL: string;
-	try {
-		const res = await fetch(`/api/voice/token?channel=${chId}`);
-		if (!res.ok) throw new Error(await res.text());
-		({ token: livekitToken, url: livekitURL } = await res.json());
-	} catch (e: any) {
-		voiceState.update((s) => ({ ...s, connecting: false }));
-		throw new Error(e.message ?? 'Failed to get voice token');
-	}
-
-	// Capture mic and build WebAudio gain pipeline so the gain slider still works
-	const cur = get(voiceState);
-	try {
-		localStream = await navigator.mediaDevices.getUserMedia({
-			audio: {
-				echoCancellation: cur.echoCancellation,
-				noiseSuppression: cur.noiseSuppression,
-				autoGainControl: cur.autoGainControl,
-			},
-			video: false,
-		});
-	} catch {
-		voiceState.update((s) => ({ ...s, connecting: false }));
-		throw new Error('Microphone access denied');
-	}
-
-	audioCtx = new AudioContext({ latencyHint: 'interactive', sampleRate: 48000 });
-	await audioCtx.resume();
-	const source = audioCtx.createMediaStreamSource(localStream);
-	gainNode = audioCtx.createGain();
-	gainNode.gain.value = cur.micGain;
-	localAnalyser = audioCtx.createAnalyser();
-	localAnalyser.fftSize = 256;
-	source.connect(gainNode);
-	source.connect(localAnalyser);
-	const dest = audioCtx.createMediaStreamDestination();
-	gainNode.connect(dest);
-	processedStream = dest.stream;
-
-	// Wrap the processed track as a LiveKit LocalAudioTrack
-	localAudioTrack = new LocalAudioTrack(processedStream.getAudioTracks()[0], undefined, false);
-
-	// Create and configure the LiveKit room
+async function connectToRoom(livekitURL: string, livekitToken: string, chId: string | null) {
 	livekitRoom = new Room({ adaptiveStream: true, dynacast: true });
 
 	livekitRoom.on(RoomEvent.ParticipantConnected, (p: RemoteParticipant) => {
@@ -184,10 +179,12 @@ export async function joinVoice(chId: string, srvId: string): Promise<void> {
 			...s,
 			peers: [...s.peers.filter((x) => x.user_id !== peer.user_id), peer],
 		}));
-		voiceParticipants.update((vp) => ({
-			...vp,
-			[chId]: [...(vp[chId] ?? []).filter((x) => x.user_id !== peer.user_id), peer],
-		}));
+		if (chId) {
+			voiceParticipants.update((vp) => ({
+				...vp,
+				[chId]: [...(vp[chId] ?? []).filter((x) => x.user_id !== peer.user_id), peer],
+			}));
+		}
 		playPeerJoinSound();
 	});
 
@@ -197,10 +194,12 @@ export async function joinVoice(chId: string, srvId: string): Promise<void> {
 			peers: s.peers.filter((x) => x.user_id !== p.identity),
 			speakingUsers: new Set([...s.speakingUsers].filter((id) => id !== p.identity)),
 		}));
-		voiceParticipants.update((vp) => ({
-			...vp,
-			[chId]: (vp[chId] ?? []).filter((x) => x.user_id !== p.identity),
-		}));
+		if (chId) {
+			voiceParticipants.update((vp) => ({
+				...vp,
+				[chId]: (vp[chId] ?? []).filter((x) => x.user_id !== p.identity),
+			}));
+		}
 		playPeerLeaveSound();
 	});
 
@@ -219,28 +218,77 @@ export async function joinVoice(chId: string, srvId: string): Promise<void> {
 	});
 
 	livekitRoom.on(RoomEvent.Disconnected, () => {
-		if (channelId) leaveVoice();
+		if (channelId || dmConvId) leaveVoice();
 	});
 
+	await livekitRoom.connect(livekitURL, livekitToken);
+	await livekitRoom.localParticipant.publishTrack(localAudioTrack!);
+}
+
+async function acquireMic(): Promise<void> {
+	const cur = get(voiceState);
+	localStream = await navigator.mediaDevices.getUserMedia({
+		audio: {
+			echoCancellation: cur.echoCancellation,
+			noiseSuppression: cur.noiseSuppression,
+			autoGainControl: cur.autoGainControl,
+		},
+		video: false,
+	});
+
+	audioCtx = new AudioContext({ latencyHint: 'interactive', sampleRate: 48000 });
+	await audioCtx.resume();
+	const source = audioCtx.createMediaStreamSource(localStream);
+	gainNode = audioCtx.createGain();
+	gainNode.gain.value = cur.micGain;
+	localAnalyser = audioCtx.createAnalyser();
+	localAnalyser.fftSize = 256;
+	source.connect(gainNode);
+	source.connect(localAnalyser);
+	const dest = audioCtx.createMediaStreamDestination();
+	gainNode.connect(dest);
+	processedStream = dest.stream;
+	localAudioTrack = new LocalAudioTrack(processedStream.getAudioTracks()[0], undefined, false);
+}
+
+// ── Public: channel voice ─────────────────────────────────────────────────────
+
+export async function joinVoice(chId: string, srvId: string): Promise<void> {
+	if (channelId || dmConvId) leaveVoice();
+
+	voiceState.update((s) => ({ ...s, connecting: true }));
+
+	let livekitToken: string, livekitURL: string;
+	try {
+		const res = await fetch(`/api/voice/token?channel=${chId}`);
+		if (!res.ok) throw new Error(await res.text());
+		({ token: livekitToken, url: livekitURL } = await res.json());
+	} catch (e: any) {
+		voiceState.update((s) => ({ ...s, connecting: false }));
+		throw new Error(e.message ?? 'Failed to get voice token');
+	}
+
+	try {
+		await acquireMic();
+	} catch {
+		voiceState.update((s) => ({ ...s, connecting: false }));
+		throw new Error('Microphone access denied');
+	}
+
 	channelId = chId;
-	voiceState.update((s) => ({ ...s, channelId: chId, serverId: srvId }));
+	voiceState.update((s) => ({ ...s, channelId: chId, dmConvId: null, label: '', serverId: srvId }));
 
 	startLocalVAD();
 	socket.subscribe('channel:' + chId);
-
-	// Keep WS voice.join so observers (not in the call) see participant display update
 	wsUnsubscribe = socket.on(() => {});
 	socket.send('voice.join', { channel_id: chId });
 
-	await livekitRoom.connect(livekitURL, livekitToken);
-	await livekitRoom.localParticipant.publishTrack(localAudioTrack);
+	await connectToRoom(livekitURL, livekitToken, chId);
 
-	// Populate initial peer list from room state
 	const initialPeers = peersFromRoom();
 	voiceState.update((s) => ({ ...s, connecting: false, peers: initialPeers }));
 	voiceParticipants.update((vp) => ({ ...vp, [chId]: initialPeers }));
 
-	// Add self to voiceParticipants for the sidebar
 	const me = get(currentUser);
 	if (me) {
 		const self: VoicePeer = { user_id: me.id, display_name: me.display_name, avatar_url: me.avatar_url ?? '' };
@@ -253,19 +301,145 @@ export async function joinVoice(chId: string, srvId: string): Promise<void> {
 	playSelfJoinSound();
 }
 
-export function leaveVoice() {
-	if (!channelId) return;
-	playSelfLeaveSound();
-	const ch = channelId;
-	channelId = null;
+// ── Public: DM call ───────────────────────────────────────────────────────────
 
-	socket.send('voice.leave', { channel_id: ch });
-	socket.unsubscribe('channel:' + ch);
-	wsUnsubscribe?.();
-	wsUnsubscribe = null;
+export async function joinDMCall(convId: string, peerName: string, peerUserId: string): Promise<void> {
+	if (channelId || dmConvId) leaveVoice();
+
+	voiceState.update((s) => ({ ...s, connecting: true }));
+
+	let livekitToken: string, livekitURL: string;
+	try {
+		const res = await fetch(`/api/voice/dm-token?conv=${convId}`);
+		if (!res.ok) throw new Error(await res.text());
+		({ token: livekitToken, url: livekitURL } = await res.json());
+	} catch (e: any) {
+		voiceState.update((s) => ({ ...s, connecting: false }));
+		throw new Error(e.message ?? 'Failed to get voice token');
+	}
+
+	try {
+		await acquireMic();
+	} catch {
+		voiceState.update((s) => ({ ...s, connecting: false }));
+		throw new Error('Microphone access denied');
+	}
+
+	dmConvId = convId;
+	dmPeerUserId = peerUserId;
+	voiceState.update((s) => ({
+		...s,
+		channelId: null,
+		dmConvId: convId,
+		dmPeerUserId: peerUserId,
+		label: peerName,
+		serverId: null,
+	}));
+
+	startLocalVAD();
+	await connectToRoom(livekitURL, livekitToken, null);
+
+	const initialPeers = peersFromRoom();
+	voiceState.update((s) => ({ ...s, connecting: false, peers: initialPeers }));
+	playSelfJoinSound();
+}
+
+// ── Public: call signaling ────────────────────────────────────────────────────
+
+export async function callFriend(userId: string, displayName: string, avatarUrl: string): Promise<void> {
+	const cur = get(callState);
+	if (cur.status !== 'idle') return;
+
+	const conv = await api.getOrCreateDM(userId);
+	callState.set({ status: 'ringing_out', convId: conv.id, peer: { userId, displayName, avatarUrl } });
+	socket.send('call.ring', { to_user_id: userId, conv_id: conv.id });
+	startOutgoingRing();
+}
+
+export function cancelCall(): void {
+	const cur = get(callState);
+	if (cur.status !== 'ringing_out' || !cur.peer) return;
+	stopRinging();
+	socket.send('call.cancel', { to_user_id: cur.peer.userId, conv_id: cur.convId });
+	callState.set({ status: 'idle', convId: null, peer: null });
+}
+
+export async function acceptCall(): Promise<void> {
+	const cur = get(callState);
+	if (cur.status !== 'ringing_in' || !cur.peer || !cur.convId) return;
+	stopRinging();
+	const { convId, peer } = cur;
+	callState.set({ status: 'idle', convId: null, peer: null });
+	socket.send('call.accept', { conv_id: convId, caller_id: peer.userId });
+	await joinDMCall(convId, peer.displayName, peer.userId);
+}
+
+export function declineCall(): void {
+	const cur = get(callState);
+	if (cur.status !== 'ringing_in' || !cur.peer) return;
+	stopRinging();
+	socket.send('call.decline', { conv_id: cur.convId, caller_id: cur.peer.userId });
+	callState.set({ status: 'idle', convId: null, peer: null });
+}
+
+// Called when the OTHER party initiates (incoming call events handled in +page.svelte)
+export function handleIncomingCall(convId: string, peer: { userId: string; displayName: string; avatarUrl: string }): void {
+	const cur = get(callState);
+	if (cur.status !== 'idle') {
+		// Busy — auto-decline
+		socket.send('call.decline', { conv_id: convId, caller_id: peer.userId });
+		return;
+	}
+	callState.set({ status: 'ringing_in', convId, peer });
+	startIncomingRing();
+}
+
+export function handleCallAccepted(convId: string, peerName: string, peerUserId: string): void {
+	stopRinging();
+	callState.set({ status: 'idle', convId: null, peer: null });
+	joinDMCall(convId, peerName, peerUserId);
+}
+
+export function handleCallDeclined(): void {
+	stopRinging();
+	callState.set({ status: 'idle', convId: null, peer: null });
+}
+
+export function handleCallEnded(): void {
+	stopRinging();
+	callState.set({ status: 'idle', convId: null, peer: null });
+	leaveVoice();
+}
+
+export function handleCallCancelled(): void {
+	stopRinging();
+	callState.set({ status: 'idle', convId: null, peer: null });
+}
+
+// ── Public: leave ─────────────────────────────────────────────────────────────
+
+export function leaveVoice() {
+	const wasDM = !!dmConvId;
+	const convId = dmConvId;
+	const peerUserId = dmPeerUserId;
+	const ch = channelId;
+
+	channelId = null;
+	dmConvId = null;
+	dmPeerUserId = null;
+
+	if (!wasDM && ch) {
+		playSelfLeaveSound();
+		socket.send('voice.leave', { channel_id: ch });
+		socket.unsubscribe('channel:' + ch);
+		wsUnsubscribe?.();
+		wsUnsubscribe = null;
+	} else if (wasDM && peerUserId) {
+		playSelfLeaveSound();
+		socket.send('call.end', { conv_id: convId, other_user_id: peerUserId });
+	}
 
 	stopLocalVAD();
-
 	localAudioTrack?.stop();
 	localAudioTrack = null;
 	livekitRoom?.disconnect();
@@ -282,13 +456,15 @@ export function leaveVoice() {
 	peerVolumesStore.set({});
 
 	voiceState.update((s) => ({
-		...DEFAULT_STATE,
+		...DEFAULT_VOICE,
 		echoCancellation: s.echoCancellation,
 		noiseSuppression: s.noiseSuppression,
 		autoGainControl: s.autoGainControl,
 		micGain: s.micGain,
 	}));
 }
+
+// ── Controls ──────────────────────────────────────────────────────────────────
 
 export function toggleMute() {
 	if (!localStream) return;
@@ -306,7 +482,6 @@ export function setMicGain(value: number) {
 export function setPeerVolume(userId: string, value: number) {
 	peerVolumesStore.update((m) => ({ ...m, [userId]: value }));
 	const el = document.getElementById(`voice-peer-${userId}`) as HTMLAudioElement | null;
-	// Clamp to 0–1 for the HTML audio element; values >1 can't be boosted here
 	if (el) el.volume = Math.min(value, 1);
 }
 
@@ -339,13 +514,9 @@ async function restartMic() {
 		});
 		const oldStream = localStream;
 		localStream = newStream;
-
-		// Reconnect WebAudio pipeline to new stream
 		const newSource = audioCtx.createMediaStreamSource(newStream);
 		newSource.connect(gainNode);
 		if (localAnalyser) newSource.connect(localAnalyser);
-
-		// Replace the published track
 		if (localAudioTrack && processedStream) {
 			const newTrack = new LocalAudioTrack(processedStream.getAudioTracks()[0], undefined, false);
 			await livekitRoom.localParticipant.unpublishTrack(localAudioTrack);
@@ -353,10 +524,8 @@ async function restartMic() {
 			localAudioTrack = newTrack;
 			await livekitRoom.localParticipant.publishTrack(localAudioTrack);
 		}
-
 		oldStream?.getTracks().forEach((t) => t.stop());
 	} catch {}
 }
 
-// Unused exports kept for type compatibility with VoicePanel
 export function setVADThreshold(_value: number) {}

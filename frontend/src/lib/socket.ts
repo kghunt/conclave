@@ -28,7 +28,12 @@ export type WSEvent =
 	| { type: 'thread.message.delete'; payload: { id: string; thread_id: string } }
 	| { type: 'thread.lock'; payload: { id: string; channel_id: string; locked: boolean } }
 	| { type: 'reaction.toggle'; payload: { message_id: string; channel_id: string; emoji: string; user_id: string; action: 'add' | 'remove' } }
-	| { type: 'reaction.new'; payload: { message_id: string; channel_id: string; emoji: string; reactor_id: string } };
+	| { type: 'reaction.new'; payload: { message_id: string; channel_id: string; emoji: string; reactor_id: string } }
+	| { type: 'call.ring'; payload: { conv_id: string; from_user_id: string; from_display_name: string; from_avatar_url: string } }
+	| { type: 'call.accepted'; payload: { conv_id: string; from_user_id: string; from_display_name: string } }
+	| { type: 'call.declined'; payload: { conv_id: string } }
+	| { type: 'call.ended'; payload: { conv_id: string } }
+	| { type: 'call.cancelled'; payload: { conv_id: string } };
 
 type Handler = (event: WSEvent) => void;
 
