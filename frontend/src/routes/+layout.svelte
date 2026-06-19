@@ -25,24 +25,38 @@
 		} catch { /* best-effort */ }
 	}
 
-	onMount(async () => {
+	onMount(() => {
 		applyTheme();
-		if ($page.url.pathname === '/login') return;
-		try {
-			const user = await api.me();
-			currentUser.set(user);
-			socket.connect();
-			const pending = sessionStorage.getItem('pendingRedirect');
-			if (pending) {
-				sessionStorage.removeItem('pendingRedirect');
-				goto(pending);
+
+		let knownVersion = '';
+		// Fetch version once on load, then poll every 60s; reload if server restarted
+		fetch('/api/version').then((r) => r.json()).then((v) => { knownVersion = v.version; }).catch(() => {});
+		const versionTimer = setInterval(() => {
+			fetch('/api/version').then((r) => r.json()).then((v) => {
+				if (knownVersion && v.version !== knownVersion) window.location.reload();
+			}).catch(() => {});
+		}, 60_000);
+
+		(async () => {
+			if ($page.url.pathname === '/login') return;
+			try {
+				const user = await api.me();
+				currentUser.set(user);
+				socket.connect();
+				const pending = sessionStorage.getItem('pendingRedirect');
+				if (pending) {
+					sessionStorage.removeItem('pendingRedirect');
+					goto(pending);
+				}
+			} catch {
+				if ($page.url.pathname !== '/') {
+					sessionStorage.setItem('pendingRedirect', $page.url.pathname + $page.url.search);
+				}
+				goto('/login');
 			}
-		} catch {
-			if ($page.url.pathname !== '/') {
-				sessionStorage.setItem('pendingRedirect', $page.url.pathname + $page.url.search);
-			}
-			goto('/login');
-		}
+		})();
+
+		return () => clearInterval(versionTimer);
 	});
 </script>
 

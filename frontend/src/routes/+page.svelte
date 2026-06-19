@@ -191,6 +191,9 @@
 		const room = 'dm:' + convId;
 
 		api.listDMMessages(convId).then((m) => (dmMessages = m ?? []));
+		// Mark read and clear unread count in the store
+		api.markDMRead(convId);
+		dmConversations.update((cs) => cs.map((c) => c.id === convId ? { ...c, unread_count: 0 } : c));
 		socket.subscribe(room);
 
 		const unsub = socket.on((event) => {
@@ -302,6 +305,9 @@
 			// dm.new delivered via user room = message in a non-active conversation
 			if (event.type === 'dm.new' && event.payload.conversation_id !== $activeDM?.id && event.payload.sender?.id !== uid) {
 				if ($notifPrefs.dmSound) playDMSound();
+				dmConversations.update((cs) => cs.map((c) =>
+					c.id === event.payload.conversation_id ? { ...c, unread_count: c.unread_count + 1 } : c
+				));
 			}
 			if (event.type === 'member.kicked' || event.type === 'member.banned') {
 				const sid = event.payload.server_id;
