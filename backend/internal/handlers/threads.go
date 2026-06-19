@@ -153,9 +153,12 @@ func (h *ThreadsHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.db.Query(r.Context(), `
 		SELECT tm.id, tm.thread_id, tm.content, tm.created_at, tm.edited_at,
-		       u.id, u.display_name, u.avatar_url
+		       u.id, u.display_name, u.avatar_url,
+		       rt.id, rt.content, ru.display_name
 		FROM thread_messages tm
 		JOIN users u ON u.id = tm.author_id
+		LEFT JOIN thread_messages rt ON rt.id = tm.reply_to_id
+		LEFT JOIN users ru ON ru.id = rt.author_id
 		WHERE tm.thread_id = $1
 		ORDER BY tm.created_at ASC
 	`, threadID)
@@ -169,9 +172,16 @@ func (h *ThreadsHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var m models.ThreadMessage
 		m.Author = &models.User{}
-		if err := rows.Scan(&m.ID, &m.ThreadID, &m.Content, &m.CreatedAt, &m.EditedAt,
-			&m.Author.ID, &m.Author.DisplayName, &m.Author.AvatarURL); err != nil {
+		var rtID, rtContent, rtAuthor *string
+		if err := rows.Scan(
+			&m.ID, &m.ThreadID, &m.Content, &m.CreatedAt, &m.EditedAt,
+			&m.Author.ID, &m.Author.DisplayName, &m.Author.AvatarURL,
+			&rtID, &rtContent, &rtAuthor,
+		); err != nil {
 			continue
+		}
+		if rtID != nil {
+			m.ReplyTo = &models.MessageReply{ID: *rtID, Content: *rtContent, AuthorName: *rtAuthor}
 		}
 		msgs = append(msgs, m)
 	}
@@ -197,7 +207,8 @@ func (h *ThreadsHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Content string `json:"content"`
+		Content   string  `json:"content"`
+		ReplyToID *string `json:"reply_to_id"`
 	}
 	if err := decodeJSON(r, &body); err != nil || body.Content == "" {
 		writeErr(w, http.StatusBadRequest, "content required")
@@ -210,22 +221,31 @@ func (h *ThreadsHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 	var m models.ThreadMessage
 	m.Author = &models.User{}
+	var rtID, rtContent, rtAuthor *string
 	err := h.db.QueryRow(r.Context(), `
 		WITH ins AS (
-			INSERT INTO thread_messages (thread_id, author_id, content)
-			VALUES ($1, $2, $3)
-			RETURNING id, thread_id, content, created_at, edited_at, author_id
+			INSERT INTO thread_messages (thread_id, author_id, content, reply_to_id)
+			VALUES ($1, $2, $3, $4)
+			RETURNING id, thread_id, content, created_at, edited_at, author_id, reply_to_id
 		)
 		SELECT ins.id, ins.thread_id, ins.content, ins.created_at, ins.edited_at,
-		       u.id, u.display_name, u.avatar_url
-		FROM ins JOIN users u ON u.id = ins.author_id
-	`, threadID, userID, body.Content).Scan(
+		       u.id, u.display_name, u.avatar_url,
+		       rt.id, rt.content, ru.display_name
+		FROM ins
+		JOIN users u ON u.id = ins.author_id
+		LEFT JOIN thread_messages rt ON rt.id = ins.reply_to_id
+		LEFT JOIN users ru ON ru.id = rt.author_id
+	`, threadID, userID, body.Content, body.ReplyToID).Scan(
 		&m.ID, &m.ThreadID, &m.Content, &m.CreatedAt, &m.EditedAt,
 		&m.Author.ID, &m.Author.DisplayName, &m.Author.AvatarURL,
+		&rtID, &rtContent, &rtAuthor,
 	)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "send failed")
 		return
+	}
+	if rtID != nil {
+		m.ReplyTo = &models.MessageReply{ID: *rtID, Content: *rtContent, AuthorName: *rtAuthor}
 	}
 
 	// Update thread stats
