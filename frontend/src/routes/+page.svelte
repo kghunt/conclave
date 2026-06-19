@@ -18,7 +18,7 @@
 	let dmMessages: DirectMessage[] = $state([]);
 	let activeThread = $state<Thread | null>(null);
 	let input = $state('');
-	let showMembers = $state(true);
+	let showMembers = $state(false);
 	let isMobile = $state(false);
 	let editingDesc = $state(false);
 	let descInput = $state('');
@@ -28,6 +28,12 @@
 		isMobile = mq.matches;
 		const handler = (e: MediaQueryListEvent) => { isMobile = e.matches; };
 		mq.addEventListener('change', handler);
+
+		// Android PWA back: pop state goes back to channel list instead of exiting
+		function handlePopState() {
+			if (isMobile) mobileBack();
+		}
+		window.addEventListener('popstate', handlePopState);
 
 		(async () => {
 			const [s, convs, fr, reqs, sent, cfg] = await Promise.all([
@@ -54,7 +60,19 @@
 			}
 		})();
 
-		return () => mq.removeEventListener('change', handler);
+		return () => {
+			mq.removeEventListener('change', handler);
+			window.removeEventListener('popstate', handlePopState);
+		};
+	});
+
+	// Push a history entry when the user enters a channel/DM on mobile so the
+	// browser back button (and Android PWA back gesture) pops to the channel list
+	$effect(() => {
+		if (!isMobile) return;
+		if ($activeChannel || $activeDM) {
+			history.pushState({ inChat: true }, '');
+		}
 	});
 
 	// On mobile: going back from chat clears the active channel/DM
@@ -245,6 +263,13 @@
 	let mentionStart = $state(-1);
 	let mentionIdx = $state(0);
 	let showMentionPopup = $state(false);
+	let mentionPopupEl = $state<HTMLElement | null>(null);
+
+	$effect(() => {
+		if (!showMentionPopup || !mentionPopupEl) return;
+		const items = mentionPopupEl.querySelectorAll<HTMLElement>('.mention-item');
+		items[mentionIdx]?.scrollIntoView({ block: 'nearest' });
+	});
 
 	let mentionMatches = $derived(
 		showMentionPopup
@@ -462,7 +487,9 @@
 						{#if $activeChannel}
 							{#if $activeChannel.type === 'threads'}
 								{#if activeThread}
-									💬 {$activeChannel.name} / {activeThread.title}
+									<button class="breadcrumb-btn" onclick={() => (activeThread = null)}>💬 {$activeChannel.name}</button>
+									<span class="breadcrumb-sep">/</span>
+									{activeThread.title}
 								{:else}
 									💬 {$activeChannel.name}
 								{/if}
@@ -571,14 +598,26 @@
 				<input bind:this={fileInput} type="file" accept="image/*,video/mp4,video/webm,video/quicktime" style="display:none"
 					onchange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) uploadAndSend(f); }} />
 				{#if showMentionPopup && mentionMatches.length > 0}
-					<div class="mention-popup">
+					<div class="mention-popup" bind:this={mentionPopupEl}>
 						{#each mentionMatches as member, i}
 							<button
 								class="mention-item"
 								class:selected={i === mentionIdx}
 								onmousedown={(e) => { e.preventDefault(); insertMention(member); }}
+								onmouseenter={() => (mentionIdx = i)}
 							>
-								<span class="mention-name">{member.user.display_name}</span>
+								<img
+									src={member.user.avatar_url || '/default-avatar.png'}
+									alt=""
+									class="mention-avatar"
+								/>
+								<div class="mention-info">
+									<span class="mention-name">{member.user.display_name}</span>
+									{#if member.space_roles?.length}
+										<span class="mention-role" style="color:{member.space_roles[0].color}">{member.space_roles[0].name}</span>
+									{/if}
+								</div>
+								<span class="mention-hint">↵</span>
 							</button>
 						{/each}
 					</div>
@@ -679,7 +718,23 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		font-size: 0.95rem;
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
 	}
+	.breadcrumb-btn {
+		background: none;
+		border: none;
+		font: inherit;
+		font-weight: 600;
+		font-size: 0.95rem;
+		color: var(--text-muted);
+		cursor: pointer;
+		padding: 0;
+		white-space: nowrap;
+	}
+	.breadcrumb-btn:hover { color: var(--text); text-decoration: underline; }
+	.breadcrumb-sep { color: var(--text-muted); font-weight: 400; }
 	.channel-desc {
 		display: flex;
 		align-items: center;
@@ -867,18 +922,41 @@
 	.mention-item {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.6rem;
 		width: 100%;
-		padding: 0.5rem 0.75rem;
+		padding: 0.4rem 0.75rem;
 		background: none;
 		border: none;
 		color: var(--text);
 		cursor: pointer;
 		text-align: left;
 		font-size: 0.9rem;
+		font-family: inherit;
 	}
 	.mention-item:hover, .mention-item.selected { background: var(--bg-input); }
+	.mention-item.selected .mention-hint { opacity: 1; }
+	.mention-avatar {
+		width: 28px;
+		height: 28px;
+		border-radius: 50%;
+		object-fit: cover;
+		flex-shrink: 0;
+	}
+	.mention-info {
+		flex: 1;
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
+		min-width: 0;
+	}
 	.mention-name { font-weight: 500; }
+	.mention-role { font-size: 0.75rem; }
+	.mention-hint {
+		font-size: 0.7rem;
+		color: var(--text-muted);
+		opacity: 0;
+		flex-shrink: 0;
+	}
 	.input-actions {
 		display: flex;
 		gap: 0.25rem;

@@ -44,6 +44,8 @@
 
 	let reactionPickerFor = $state<string | null>(null);
 	let reactionPickerRect = $state<DOMRect | null>(null);
+	let mobileMenuFor = $state<string | null>(null);
+	let mobileMenuRect = $state<DOMRect | null>(null);
 
 	let container: HTMLElement;
 	let stickToBottom = true;
@@ -225,7 +227,8 @@
 			{/if}
 
 			{#if !editing}
-				<div class="msg-actions">
+				<!-- Desktop: hover-reveal action buttons -->
+				<div class="msg-actions desktop-actions">
 					{#if isMessage(msg) && !isDM && onreact}
 						<button class="action-btn" onclick={(e) => {
 							e.stopPropagation();
@@ -243,6 +246,14 @@
 						<button class="action-btn delete" onclick={() => deleteMsg(msg)} title="Delete">✕</button>
 					{/if}
 				</div>
+				<!-- Mobile: single ⋯ button that pops a fixed-position menu -->
+				<div class="msg-actions mobile-actions">
+					<button class="action-btn more-btn" onclick={(e) => {
+						e.stopPropagation();
+						if (mobileMenuFor === msg.id) { mobileMenuFor = null; mobileMenuRect = null; }
+						else { mobileMenuFor = msg.id; mobileMenuRect = (e.currentTarget as HTMLElement).getBoundingClientRect(); reactionPickerFor = null; }
+					}} title="More actions">⋯</button>
+				</div>
 			{/if}
 		</div>
 	{/each}
@@ -255,6 +266,33 @@
 		onSelect={(emoji) => { onreact(msgId, emoji); reactionPickerFor = null; reactionPickerRect = null; }}
 		onClose={() => { reactionPickerFor = null; reactionPickerRect = null; }}
 	/>
+{/if}
+
+{#if mobileMenuFor && mobileMenuRect}
+	{@const menuMsgId = mobileMenuFor}
+	{@const menuMsg = messages.find(m => m.id === menuMsgId)}
+	{@const menuIsOwn = menuMsg?.author?.id === $currentUser?.id}
+	{@const menuCanDelete = menuIsOwn || isAdmin}
+	<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+	<div class="mobile-menu-overlay" onclick={() => { mobileMenuFor = null; mobileMenuRect = null; }}></div>
+	<div class="mobile-context-menu" style="bottom:{window.innerHeight - mobileMenuRect.top + 8}px;left:{Math.min(mobileMenuRect.right - 160, window.innerWidth - 172)}px">
+		{#if menuMsg && isMessage(menuMsg) && !isDM && onreact}
+			<button onclick={() => {
+				reactionPickerFor = menuMsgId;
+				reactionPickerRect = mobileMenuRect;
+				mobileMenuFor = null;
+			}}>😊 React</button>
+		{/if}
+		{#if menuMsg && isMessage(menuMsg) && onreply}
+			<button onclick={() => { onreply(menuMsg as Message); mobileMenuFor = null; mobileMenuRect = null; }}>↩ Reply</button>
+		{/if}
+		{#if menuIsOwn && menuMsg && isMessage(menuMsg)}
+			<button onclick={() => { startEdit(menuMsg); mobileMenuFor = null; mobileMenuRect = null; }}>✏ Edit</button>
+		{/if}
+		{#if menuCanDelete && menuMsg}
+			<button class="danger" onclick={() => { deleteMsg(menuMsg); mobileMenuFor = null; mobileMenuRect = null; }}>✕ Delete</button>
+		{/if}
+	</div>
 {/if}
 
 <style>
@@ -393,11 +431,43 @@
 		opacity: 0;
 		transition: opacity 0.1s;
 	}
+	.desktop-actions { display: flex; }
+	.mobile-actions { display: none; }
 	@media (max-width: 767px) {
-		.msg-actions { opacity: 1; }
-		.action-btn { width: 32px; height: 32px; }
-		.message { padding: 0.25rem 0.75rem; padding-right: 5rem; }
+		.desktop-actions { display: none; }
+		.mobile-actions { display: flex; opacity: 1; }
 	}
+	.more-btn { font-size: 1rem; font-weight: bold; letter-spacing: 1px; }
+	.mobile-menu-overlay {
+		position: fixed;
+		inset: 0;
+		z-index: 90;
+	}
+	.mobile-context-menu {
+		position: fixed;
+		z-index: 91;
+		background: #1e1e24;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		min-width: 160px;
+		overflow: hidden;
+		box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+	}
+	.mobile-context-menu button {
+		display: block;
+		width: 100%;
+		text-align: left;
+		background: none;
+		border: none;
+		color: var(--text);
+		padding: 0.65rem 1rem;
+		font-size: 0.9rem;
+		cursor: pointer;
+		font-family: inherit;
+	}
+	.mobile-context-menu button:hover { background: rgba(255,255,255,0.06); }
+	.mobile-context-menu button.danger { color: #e04545; }
+	.mobile-context-menu button + button { border-top: 1px solid var(--border); }
 	.action-btn {
 		background: #222228;
 		border: 1px solid var(--border);

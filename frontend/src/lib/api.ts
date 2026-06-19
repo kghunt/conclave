@@ -62,6 +62,10 @@ export const api = {
 		req<ThreadMessage[]>('GET', `/threads/${threadId}/messages`),
 	sendThreadMessage: (threadId: string, content: string) =>
 		req<ThreadMessage>('POST', `/threads/${threadId}/messages`, { content }),
+	editThreadMessage: (threadId: string, messageId: string, content: string) =>
+		req<ThreadMessage>('PATCH', `/threads/${threadId}/messages/${messageId}`, { content }),
+	deleteThreadMessage: (threadId: string, messageId: string) =>
+		req<void>('DELETE', `/threads/${threadId}/messages/${messageId}`),
 	updateChannel: (serverId: string, channelId: string, data: { name?: string; description?: string }) =>
 		req<Channel>('PATCH', `/servers/${serverId}/channels/${channelId}`, data),
 	deleteChannel: (serverId: string, channelId: string) =>
