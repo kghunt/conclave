@@ -274,7 +274,8 @@
 					<div class="date-divider"><span>{fmtDate(msg.created_at)}</span></div>
 				{/if}
 				{@const isOwn = msg.author.id === $currentUser?.id}
-				{@const canDelete = isOwn || isAdmin}
+				{@const canEdit = isOwn && (!locked || isAdmin)}
+				{@const canDelete = (isOwn || isAdmin) && (!locked || isAdmin)}
 				{@const editing = editingId === msg.id}
 				<div class="tv-msg" class:editing>
 					<img
@@ -319,8 +320,10 @@
 					</div>
 					{#if !editing}
 						<div class="tv-actions">
-							<button class="tv-action-btn" onclick={() => startReply(msg)} title="Reply">↩</button>
-							{#if isOwn}
+							{#if !locked}
+								<button class="tv-action-btn" onclick={() => startReply(msg)} title="Reply">↩</button>
+							{/if}
+							{#if canEdit}
 								<button class="tv-action-btn" onclick={() => startEdit(msg)} title="Edit">✏</button>
 							{/if}
 							{#if canDelete}
