@@ -317,10 +317,12 @@
 		serverUnread.update((m) => ({ ...m, [srv.id]: hasUnread }));
 	});
 
-	// Listen for mentions, DMs from background conversations, kicks/bans, and friend events
+	// Listen for mentions, DMs from background conversations, kicks/bans, friend events, and calls
 	$effect(() => {
 		const uid = $currentUser?.id;
 		if (!uid) return;
+		const room = 'user:' + uid;
+		socket.subscribe(room);
 		const unsub = socket.on((event) => {
 			if (event.type === 'friend.accepted') {
 				Promise.all([api.listFriends(), api.listFriendRequestsSent()]).then(([fr, sent]) => {
@@ -376,7 +378,7 @@
 				}
 			}
 		});
-		return () => unsub();
+		return () => { unsub(); socket.unsubscribe(room); };
 	});
 
 	function onInput() {
