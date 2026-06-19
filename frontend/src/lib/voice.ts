@@ -2,10 +2,10 @@ import { get, writable } from 'svelte/store';
 import {
 	Room,
 	RoomEvent,
+	ParticipantEvent,
 	Track,
 	type RemoteParticipant,
 	LocalAudioTrack,
-	type TrackPublication,
 } from 'livekit-client';
 import { socket } from './socket';
 import type { VoicePeer } from './api';
@@ -171,6 +171,16 @@ export async function joinVoice(chId: string, srvId: string): Promise<void> {
 	// Create and configure the LiveKit room
 	livekitRoom = new Room({ adaptiveStream: true, dynacast: true });
 
+	function attachSpeakingListener(p: RemoteParticipant) {
+		p.on(ParticipantEvent.IsSpeakingChanged, (speaking: boolean) => {
+			voiceState.update((s) => {
+				const next = new Set(s.speakingUsers);
+				if (speaking) next.add(p.identity); else next.delete(p.identity);
+				return { ...s, speakingUsers: next };
+			});
+		});
+	}
+
 	livekitRoom.on(RoomEvent.ParticipantConnected, (p: RemoteParticipant) => {
 		const peer = participantToPeer(p);
 		voiceState.update((s) => ({
@@ -181,6 +191,7 @@ export async function joinVoice(chId: string, srvId: string): Promise<void> {
 			...vp,
 			[chId]: [...(vp[chId] ?? []).filter((x) => x.user_id !== peer.user_id), peer],
 		}));
+		attachSpeakingListener(p);
 		playPeerJoinSound();
 	});
 
@@ -188,6 +199,7 @@ export async function joinVoice(chId: string, srvId: string): Promise<void> {
 		voiceState.update((s) => ({
 			...s,
 			peers: s.peers.filter((x) => x.user_id !== p.identity),
+			speakingUsers: new Set([...s.speakingUsers].filter((id) => id !== p.identity)),
 		}));
 		voiceParticipants.update((vp) => ({
 			...vp,
@@ -202,27 +214,12 @@ export async function joinVoice(chId: string, srvId: string): Promise<void> {
 		el.id = `voice-peer-${participant.identity}`;
 		el.style.display = 'none';
 		document.body.appendChild(el);
-		// Apply saved volume preference
 		const vol = get(peerVolumesStore)[participant.identity];
 		if (vol !== undefined) el.volume = Math.min(vol, 1);
 	});
 
 	livekitRoom.on(RoomEvent.TrackUnsubscribed, (track) => {
 		track.detach().forEach((el) => el.remove());
-	});
-
-	// LiveKit tells us who's speaking (remote participants)
-	livekitRoom.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
-		voiceState.update((s) => {
-			const next = new Set<string>();
-			// Keep local speaking state from VAD
-			const me = get(currentUser);
-			if (me && s.speakingUsers.has(me.id)) next.add(me.id);
-			for (const sp of speakers) {
-				if (sp.identity !== get(currentUser)?.id) next.add(sp.identity);
-			}
-			return { ...s, speakingUsers: next };
-		});
 	});
 
 	livekitRoom.on(RoomEvent.Disconnected, () => {
@@ -241,6 +238,11 @@ export async function joinVoice(chId: string, srvId: string): Promise<void> {
 
 	await livekitRoom.connect(livekitURL, livekitToken);
 	await livekitRoom.localParticipant.publishTrack(localAudioTrack);
+
+	// Attach speaking listeners to participants already in the room
+	for (const p of livekitRoom.remoteParticipants.values()) {
+		attachSpeakingListener(p);
+	}
 
 	// Populate initial peer list from room state
 	const initialPeers = peersFromRoom();
