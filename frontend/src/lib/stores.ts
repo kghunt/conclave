@@ -42,3 +42,4 @@ export const mentionedChannels = writable<Set<string>>(new Set());
 export const presenceMap = writable<Record<string, string>>({}); // userId → 'online'|'away'|'offline'
 export const pendingJoinRequests = writable<import('./api').JoinRequest[]>([]); // pending join requests for current space
 export const voiceParticipants = writable<Record<string, VoicePeer[]>>({}); // channelId → current voice participants
+export const serverUnread = writable<Record<string, boolean>>({}); // serverId → has unread

@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api, type Message, type DirectMessage, type MessageReply, type Thread, type Reaction } from '$lib/api';
 	import { socket } from '$lib/socket';
-	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent, instanceConfig, serverMembers, mentionedChannels, presenceMap, notifPrefs } from '$lib/stores';
+	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent, instanceConfig, serverMembers, mentionedChannels, presenceMap, notifPrefs, serverUnread } from '$lib/stores';
 	import { playMessageSound, playMentionSound, playDMSound } from '$lib/sounds';
 	import type { ServerMember } from '$lib/api';
 	import ServerList from '$lib/components/ServerList.svelte';
@@ -282,6 +282,14 @@
 				.slice(0, 8)
 			: [] as ServerMember[]
 	);
+
+	// Keep serverUnread in sync with the active server's channel unread counts and mentions
+	$effect(() => {
+		const srv = $activeServer;
+		if (!srv) return;
+		const hasUnread = $channels.some((c) => c.unread_count > 0 || $mentionedChannels.has(c.id));
+		serverUnread.update((m) => ({ ...m, [srv.id]: hasUnread }));
+	});
 
 	// Listen for mentions, DMs from background conversations, kicks/bans on the personal WS room
 	$effect(() => {

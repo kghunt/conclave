@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { api, type Server } from '$lib/api';
-	import { servers, activeServer, channels, activeChannel, instanceConfig, currentUser } from '$lib/stores';
+	import { servers, activeServer, channels, activeChannel, instanceConfig, currentUser, serverUnread } from '$lib/stores';
 	import ServerContextMenu from './ServerContextMenu.svelte';
 	import SpaceBrowser from './SpaceBrowser.svelte';
 
@@ -78,19 +78,24 @@
 
 <nav class="server-list">
 	{#each $servers as s}
-		<button
-			class="server-icon"
-			class:active={$activeServer?.id === s.id}
-			title={s.name}
-			onclick={() => selectServer(s.id)}
-			oncontextmenu={(e) => openContextMenu(e, s)}
-		>
-			{#if s.icon_url}
-				<img src={s.icon_url} alt={s.name} />
-			{:else}
-				{s.name.slice(0, 2).toUpperCase()}
+		<div class="server-wrap">
+			<button
+				class="server-icon"
+				class:active={$activeServer?.id === s.id}
+				title={s.name}
+				onclick={() => selectServer(s.id)}
+				oncontextmenu={(e) => openContextMenu(e, s)}
+			>
+				{#if s.icon_url}
+					<img src={s.icon_url} alt={s.name} />
+				{:else}
+					{s.name.slice(0, 2).toUpperCase()}
+				{/if}
+			</button>
+			{#if $serverUnread[s.id] && $activeServer?.id !== s.id}
+				<span class="unread-dot"></span>
 			{/if}
-		</button>
+		</div>
 	{/each}
 
 	<div class="divider"></div>
@@ -141,6 +146,23 @@
 {/if}
 
 <style>
+	.server-wrap {
+		position: relative;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.unread-dot {
+		position: absolute;
+		bottom: -3px;
+		left: 50%;
+		transform: translateX(-50%);
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: #e04545;
+		pointer-events: none;
+	}
 	.server-list {
 		width: 72px;
 		background: #0e0e10;
