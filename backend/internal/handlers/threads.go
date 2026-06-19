@@ -237,6 +237,7 @@ func (h *ThreadsHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	msgPayload, _ := json.Marshal(m)
 	h.hub.Broadcast("thread:"+threadID, ws.Event{Type: "thread.message.new", Payload: msgPayload})
 
+
 	// Broadcast updated thread to channel room so bubbles update
 	var updated models.Thread
 	updated.CreatedBy = &models.User{}
@@ -257,4 +258,79 @@ func (h *ThreadsHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, m)
+}
+
+func (h *ThreadsHandler) EditMessage(w http.ResponseWriter, r *http.Request) {
+	messageID := chi.URLParam(r, "messageID")
+	threadID := chi.URLParam(r, "threadID")
+	userID := middleware.UserID(r)
+
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := decodeJSON(r, &body); err != nil || body.Content == "" {
+		writeErr(w, http.StatusBadRequest, "content required")
+		return
+	}
+	if len(body.Content) > 4000 {
+		writeErr(w, http.StatusBadRequest, "message too long (max 4000 characters)")
+		return
+	}
+
+	var m models.ThreadMessage
+	m.Author = &models.User{}
+	err := h.db.QueryRow(r.Context(), `
+		WITH upd AS (
+			UPDATE thread_messages SET content = $1, edited_at = NOW()
+			WHERE id = $2 AND author_id = $3 AND thread_id = $4
+			RETURNING id, thread_id, content, created_at, edited_at, author_id
+		)
+		SELECT upd.id, upd.thread_id, upd.content, upd.created_at, upd.edited_at,
+		       u.id, u.display_name, u.avatar_url
+		FROM upd JOIN users u ON u.id = upd.author_id
+	`, body.Content, messageID, userID, threadID).Scan(
+		&m.ID, &m.ThreadID, &m.Content, &m.CreatedAt, &m.EditedAt,
+		&m.Author.ID, &m.Author.DisplayName, &m.Author.AvatarURL,
+	)
+	if err != nil {
+		writeErr(w, http.StatusForbidden, "not your message or not found")
+		return
+	}
+
+	payload, _ := json.Marshal(m)
+	h.hub.Broadcast("thread:"+threadID, ws.Event{Type: "thread.message.edit", Payload: payload})
+	writeJSON(w, http.StatusOK, m)
+}
+
+func (h *ThreadsHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
+	messageID := chi.URLParam(r, "messageID")
+	threadID := chi.URLParam(r, "threadID")
+	userID := middleware.UserID(r)
+
+	tag, _ := h.db.Exec(r.Context(), `
+		DELETE FROM thread_messages WHERE id = $1 AND author_id = $2 AND thread_id = $3
+	`, messageID, userID, threadID)
+	if tag.RowsAffected() == 0 {
+		var role string
+		h.db.QueryRow(r.Context(), `
+			SELECT sm.role FROM thread_messages tm
+			JOIN threads t ON t.id = tm.thread_id
+			JOIN channels c ON c.id = t.channel_id
+			JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = $2
+			WHERE tm.id = $1
+		`, messageID, userID).Scan(&role)
+		if role != "owner" && role != "admin" {
+			writeErr(w, http.StatusForbidden, "not your message")
+			return
+		}
+		h.db.Exec(r.Context(), `DELETE FROM thread_messages WHERE id = $1`, messageID)
+	}
+
+	h.db.Exec(r.Context(), `
+		UPDATE threads SET message_count = GREATEST(0, message_count - 1) WHERE id = $1
+	`, threadID)
+
+	payload, _ := json.Marshal(map[string]string{"id": messageID, "thread_id": threadID})
+	h.hub.Broadcast("thread:"+threadID, ws.Event{Type: "thread.message.delete", Payload: payload})
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

@@ -1,9 +1,13 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import { api, type Thread, type ThreadMessage } from '$lib/api';
-	import { currentUser } from '$lib/stores';
+	import { currentUser, activeServer } from '$lib/stores';
 	import { socket } from '$lib/socket';
 	import EmojiPicker from './EmojiPicker.svelte';
+
+	const isAdmin = $derived(
+		$activeServer?.role === 'owner' || $activeServer?.role === 'admin'
+	);
 
 	interface Props {
 		thread: Thread;
@@ -20,6 +24,9 @@
 	let textarea: HTMLTextAreaElement;
 	let fileInput: HTMLInputElement;
 
+	let editingId = $state<string | null>(null);
+	let editContent = $state('');
+
 	onMount(() => {
 		load();
 		socket.subscribe('thread:' + thread.id);
@@ -27,6 +34,12 @@
 			if (event.type === 'thread.message.new' && event.payload.thread_id === thread.id) {
 				messages = [...messages, event.payload];
 				scrollBottom();
+			}
+			if (event.type === 'thread.message.edit' && event.payload.thread_id === thread.id) {
+				messages = messages.map((m) => m.id === event.payload.id ? event.payload : m);
+			}
+			if (event.type === 'thread.message.delete' && event.payload.thread_id === thread.id) {
+				messages = messages.filter((m) => m.id !== event.payload.id);
 			}
 		});
 		return () => { unsub(); socket.unsubscribe('thread:' + thread.id); };
@@ -55,7 +68,9 @@
 	}
 
 	async function uploadAndSend(file: File) {
-		if (!file.type.startsWith('image/')) return;
+		const isImage = file.type.startsWith('image/');
+		const isVideo = file.type.startsWith('video/');
+		if (!isImage && !isVideo) return;
 		uploading = true;
 		try {
 			const { url } = await api.uploadFile(file);
@@ -63,6 +78,26 @@
 		} finally {
 			uploading = false;
 		}
+	}
+
+	function startEdit(msg: ThreadMessage) {
+		editingId = msg.id;
+		editContent = msg.content;
+	}
+
+	function cancelEdit() {
+		editingId = null;
+		editContent = '';
+	}
+
+	async function saveEdit(msg: ThreadMessage) {
+		if (!editContent.trim()) return;
+		await api.editThreadMessage(thread.id, msg.id, editContent.trim());
+		cancelEdit();
+	}
+
+	async function deleteMsg(msg: ThreadMessage) {
+		await api.deleteThreadMessage(thread.id, msg.id);
 	}
 
 	function insertEmoji(emoji: string) {
@@ -78,16 +113,18 @@
 	}
 
 	function onPaste(e: ClipboardEvent) {
-		const image = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith('image/'));
-		if (!image) return;
+		const media = Array.from(e.clipboardData?.items ?? []).find(
+			(i) => i.type.startsWith('image/') || i.type.startsWith('video/')
+		);
+		if (!media) return;
 		e.preventDefault();
-		const file = image.getAsFile();
+		const file = media.getAsFile();
 		if (file) uploadAndSend(file);
 	}
 
 	function onBeforeInput(e: InputEvent) {
 		const file = e.dataTransfer?.files?.[0];
-		if (!file?.type.startsWith('image/')) return;
+		if (!file?.type.startsWith('image/') && !file?.type.startsWith('video/')) return;
 		e.preventDefault();
 		uploadAndSend(file);
 	}
@@ -102,6 +139,18 @@
 
 	function sameDay(a: string, b: string): boolean {
 		return new Date(a).toDateString() === new Date(b).toDateString();
+	}
+
+	function isImageUrl(text: string): boolean {
+		const t = text.trim();
+		return /^\/avatars\/[a-f0-9-]+\.(jpg|jpeg|png|gif|webp|svg)$/i.test(t) ||
+			/^https?:\/\/[^/]+\/avatars\/[a-f0-9-]+\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i.test(t);
+	}
+
+	function isVideoUrl(text: string): boolean {
+		const t = text.trim();
+		return /^\/avatars\/[a-f0-9-]+\.(mp4|webm|mov)$/i.test(t) ||
+			/^https?:\/\/[^/]+\/avatars\/[a-f0-9-]+\.(mp4|webm|mov)(\?.*)?$/i.test(t);
 	}
 </script>
 
@@ -125,7 +174,10 @@
 				{#if i === 0 || !sameDay(messages[i - 1].created_at, msg.created_at)}
 					<div class="date-divider"><span>{fmtDate(msg.created_at)}</span></div>
 				{/if}
-				<div class="tv-msg" class:own={msg.author.id === $currentUser?.id}>
+				{@const isOwn = msg.author.id === $currentUser?.id}
+				{@const canDelete = isOwn || isAdmin}
+				{@const editing = editingId === msg.id}
+				<div class="tv-msg" class:editing>
 					<img
 						src={msg.author.avatar_url || '/default-avatar.png'}
 						alt=""
@@ -135,9 +187,41 @@
 						<div class="tv-meta">
 							<span class="tv-author">{msg.author.display_name}</span>
 							<span class="tv-time">{fmt(msg.created_at)}</span>
+							{#if msg.edited_at}
+								<span class="tv-edited">(edited)</span>
+							{/if}
 						</div>
-						<div class="tv-text">{msg.content}</div>
+						{#if editing}
+							<textarea
+								class="edit-input"
+								bind:value={editContent}
+								rows="2"
+								autofocus
+								onkeydown={(e) => {
+									if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(msg); }
+									if (e.key === 'Escape') cancelEdit();
+								}}
+							></textarea>
+							<div class="edit-hint">Enter to save · Esc to cancel</div>
+						{:else if isImageUrl(msg.content)}
+							<img src={msg.content} alt="uploaded" class="tv-media" loading="lazy" />
+						{:else if isVideoUrl(msg.content)}
+							<!-- svelte-ignore a11y-media-has-caption -->
+							<video src={msg.content} class="tv-media" controls preload="metadata"></video>
+						{:else}
+							<div class="tv-text">{msg.content}</div>
+						{/if}
 					</div>
+					{#if !editing}
+						<div class="tv-actions">
+							{#if isOwn}
+								<button class="tv-action-btn" onclick={() => startEdit(msg)} title="Edit">✏</button>
+							{/if}
+							{#if canDelete}
+								<button class="tv-action-btn delete" onclick={() => deleteMsg(msg)} title="Delete">✕</button>
+							{/if}
+						</div>
+					{/if}
 				</div>
 			{/each}
 		{/if}
@@ -147,7 +231,7 @@
 		<div class="tv-input-actions">
 			<button
 				class="action-icon"
-				title="Upload image"
+				title="Upload image or video"
 				disabled={uploading || sending}
 				onclick={() => fileInput.click()}
 			>
@@ -169,7 +253,7 @@
 				<EmojiPicker onSelect={(e) => { insertEmoji(e); showEmoji = false; }} onClose={() => (showEmoji = false)} />
 			{/if}
 		</div>
-		<input bind:this={fileInput} type="file" accept="image/*" style="display:none"
+		<input bind:this={fileInput} type="file" accept="image/*,video/mp4,video/webm,video/quicktime" style="display:none"
 			onchange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) uploadAndSend(f); (e.target as HTMLInputElement).value = ''; }} />
 		<textarea
 			bind:this={textarea}
@@ -269,8 +353,11 @@
 		gap: 0.6rem;
 		padding: 0.25rem 0.4rem;
 		border-radius: 6px;
+		position: relative;
 	}
 	.tv-msg:hover { background: rgba(255,255,255,0.03); }
+	.tv-msg:hover .tv-actions { opacity: 1; }
+	.tv-msg.editing { background: rgba(232,84,30,0.05); }
 	.tv-avatar {
 		width: 32px;
 		height: 32px;
@@ -295,12 +382,68 @@
 		font-size: 0.72rem;
 		color: var(--text-muted);
 	}
+	.tv-edited {
+		font-size: 0.65rem;
+		color: var(--text-muted);
+		font-style: italic;
+	}
 	.tv-text {
 		font-size: 0.9rem;
 		color: var(--text);
 		line-height: 1.45;
 		white-space: pre-wrap;
 		word-break: break-word;
+	}
+	.tv-media {
+		max-width: min(480px, 100%);
+		max-height: 300px;
+		border-radius: 6px;
+		display: block;
+		margin-top: 0.25rem;
+	}
+	.tv-actions {
+		position: absolute;
+		right: 0.5rem;
+		top: 50%;
+		transform: translateY(-50%);
+		display: flex;
+		gap: 0.25rem;
+		opacity: 0;
+		transition: opacity 0.1s;
+	}
+	@media (max-width: 767px) { .tv-actions { opacity: 1; } }
+	.tv-action-btn {
+		background: #222228;
+		border: 1px solid var(--border);
+		color: var(--text);
+		width: 26px;
+		height: 26px;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.7rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.tv-action-btn:hover { background: var(--border); }
+	.tv-action-btn.delete:hover { background: #e04545; border-color: #e04545; }
+	.edit-input {
+		width: 100%;
+		background: var(--bg-input);
+		border: 1px solid var(--accent);
+		border-radius: 6px;
+		color: var(--text);
+		padding: 0.5rem;
+		font-size: 0.9rem;
+		font-family: inherit;
+		resize: none;
+		outline: none;
+		line-height: 1.5;
+	}
+	.edit-hint {
+		font-size: 0.7rem;
+		color: var(--text-muted);
+		margin-top: 0.2rem;
 	}
 	.tv-input-row {
 		display: flex;

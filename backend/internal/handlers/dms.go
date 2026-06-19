@@ -64,8 +64,9 @@ func (h *DMsHandler) GetOrCreate(w http.ResponseWriter, r *http.Request) {
 	h.db.QueryRow(r.Context(), `
 		SELECT EXISTS(
 			SELECT 1 FROM friendships
-			WHERE (user_id = $1 AND friend_id = $2)
-			   OR (user_id = $2 AND friend_id = $1)
+			WHERE status = 'accepted'
+			  AND ((requester_id = $1 AND addressee_id = $2)
+			    OR (requester_id = $2 AND addressee_id = $1))
 		)`, userID, otherID).Scan(&areFriends)
 	if !areFriends {
 		writeErr(w, http.StatusForbidden, "you can only DM friends")
