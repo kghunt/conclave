@@ -3,6 +3,7 @@
 	import { api, type Message, type DirectMessage } from '$lib/api';
 	import Avatar from './Avatar.svelte';
 	import EmojiPicker from './EmojiPicker.svelte';
+	import LightboxImage from './LightboxImage.svelte';
 
 	const isAdmin = $derived(
 		$activeServer?.role === 'owner' || $activeServer?.role === 'admin'
@@ -46,6 +47,7 @@
 	let reactionPickerRect = $state<DOMRect | null>(null);
 	let mobileMenuFor = $state<string | null>(null);
 	let mobileMenuRect = $state<DOMRect | null>(null);
+	let lightboxSrc = $state<string | null>(null);
 
 	let container: HTMLElement;
 	let stickToBottom = true;
@@ -181,7 +183,7 @@
 						></textarea>
 						<div class="edit-hint">Enter to save · Esc to cancel</div>
 					{:else if isImageUrl(msg.content)}
-						<img src={msg.content} alt="uploaded" class="msg-image" loading="lazy" />
+						<img src={msg.content} alt="uploaded" class="msg-image" loading="lazy" onclick={() => lightboxSrc = msg.content} />
 					{:else if isVideoUrl(msg.content)}
 						<!-- svelte-ignore a11y-media-has-caption -->
 						<video src={msg.content} class="msg-video" controls preload="metadata"></video>
@@ -209,7 +211,7 @@
 						></textarea>
 						<div class="edit-hint">Enter to save · Esc to cancel</div>
 					{:else if isImageUrl(msg.content)}
-						<img src={msg.content} alt="uploaded" class="msg-image" loading="lazy" />
+						<img src={msg.content} alt="uploaded" class="msg-image" loading="lazy" onclick={() => lightboxSrc = msg.content} />
 					{:else if isVideoUrl(msg.content)}
 						<!-- svelte-ignore a11y-media-has-caption -->
 						<video src={msg.content} class="msg-video" controls preload="metadata"></video>
@@ -258,6 +260,10 @@
 		</div>
 	{/each}
 </div>
+
+{#if lightboxSrc}
+	<LightboxImage src={lightboxSrc} onclose={() => lightboxSrc = null} />
+{/if}
 
 {#if reactionPickerFor && reactionPickerRect && onreact}
 	{@const msgId = reactionPickerFor}
