@@ -81,6 +81,7 @@ type Thread struct {
 	ChannelID     string    `json:"channel_id"`
 	Title         string    `json:"title"`
 	CreatedBy     *User     `json:"created_by"`
+	Locked        bool      `json:"locked"`
 	CreatedAt     time.Time `json:"created_at"`
 	LastMessageAt time.Time `json:"last_message_at"`
 	MessageCount  int       `json:"message_count"`

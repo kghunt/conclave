@@ -40,7 +40,7 @@ func (h *ThreadsHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(r.Context(), `
 		SELECT t.id, t.channel_id, t.title,
 		       u.id, u.display_name, u.avatar_url,
-		       t.created_at, t.last_message_at, t.message_count
+		       t.locked, t.created_at, t.last_message_at, t.message_count
 		FROM threads t
 		JOIN users u ON u.id = t.created_by
 		WHERE t.channel_id = $1
@@ -58,7 +58,7 @@ func (h *ThreadsHandler) List(w http.ResponseWriter, r *http.Request) {
 		t.CreatedBy = &models.User{}
 		if err := rows.Scan(&t.ID, &t.ChannelID, &t.Title,
 			&t.CreatedBy.ID, &t.CreatedBy.DisplayName, &t.CreatedBy.AvatarURL,
-			&t.CreatedAt, &t.LastMessageAt, &t.MessageCount); err != nil {
+			&t.Locked, &t.CreatedAt, &t.LastMessageAt, &t.MessageCount); err != nil {
 			continue
 		}
 		threads = append(threads, t)
@@ -192,17 +192,21 @@ func (h *ThreadsHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	threadID := chi.URLParam(r, "threadID")
 	userID := middleware.UserID(r)
 
-	var isMember bool
+	var isMember, locked bool
 	var channelID string
 	h.db.QueryRow(r.Context(), `
-		SELECT sm.user_id IS NOT NULL, c.id
+		SELECT sm.user_id IS NOT NULL, c.id, t.locked
 		FROM threads t
 		JOIN channels c ON c.id = t.channel_id
 		LEFT JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = $2
 		WHERE t.id = $1
-	`, threadID, userID).Scan(&isMember, &channelID)
+	`, threadID, userID).Scan(&isMember, &channelID, &locked)
 	if !isMember {
 		writeErr(w, http.StatusForbidden, "not a member")
+		return
+	}
+	if locked {
+		writeErr(w, http.StatusForbidden, "thread is locked")
 		return
 	}
 
@@ -352,5 +356,42 @@ func (h *ThreadsHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 
 	payload, _ := json.Marshal(map[string]string{"id": messageID, "thread_id": threadID})
 	h.hub.Broadcast("thread:"+threadID, ws.Event{Type: "thread.message.delete", Payload: payload})
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (h *ThreadsHandler) SetLocked(w http.ResponseWriter, r *http.Request) {
+	threadID := chi.URLParam(r, "threadID")
+	userID := middleware.UserID(r)
+
+	var body struct {
+		Locked bool `json:"locked"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+
+	// Only thread creator or space admin/owner may lock
+	var canLock bool
+	h.db.QueryRow(r.Context(), `
+		SELECT EXISTS(
+			SELECT 1 FROM threads t
+			JOIN channels c ON c.id = t.channel_id
+			JOIN server_members sm ON sm.server_id = c.server_id AND sm.user_id = $2
+			WHERE t.id = $1 AND (t.created_by = $2 OR sm.role IN ('admin', 'owner'))
+		)
+	`, threadID, userID).Scan(&canLock)
+	if !canLock {
+		writeErr(w, http.StatusForbidden, "not allowed")
+		return
+	}
+
+	var channelID string
+	h.db.QueryRow(r.Context(), `
+		UPDATE threads SET locked = $2 WHERE id = $1 RETURNING channel_id
+	`, threadID, body.Locked).Scan(&channelID)
+
+	payload, _ := json.Marshal(map[string]interface{}{"id": threadID, "channel_id": channelID, "locked": body.Locked})
+	h.hub.Broadcast("channel:"+channelID, ws.Event{Type: "thread.lock", Payload: payload})
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

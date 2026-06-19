@@ -150,6 +150,7 @@ func main() {
 		r.Post("/api/threads/{threadID}/messages", threadsH.SendMessage)
 		r.Patch("/api/threads/{threadID}/messages/{messageID}", threadsH.EditMessage)
 		r.Delete("/api/threads/{threadID}/messages/{messageID}", threadsH.DeleteMessage)
+		r.Patch("/api/threads/{threadID}/lock", threadsH.SetLocked)
 
 		// messages
 		r.Get("/api/servers/{serverID}/channels/{channelID}/messages", messagesH.List)

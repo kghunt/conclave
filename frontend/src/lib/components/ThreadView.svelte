@@ -30,6 +30,10 @@
 	let editContent = $state('');
 	let replyingTo = $state<ThreadMessage | null>(null);
 	let lightboxSrc = $state<string | null>(null);
+	let locked = $state(thread.locked);
+
+	const isCreator = $derived($currentUser?.id === thread.created_by.id);
+	const canLock = $derived(isAdmin || isCreator);
 
 	// @mention autocomplete
 	let mentionQuery = $state('');
@@ -67,9 +71,17 @@
 			if (event.type === 'thread.message.delete' && event.payload.thread_id === thread.id) {
 				messages = messages.filter((m) => m.id !== event.payload.id);
 			}
+			if (event.type === 'thread.lock' && event.payload.id === thread.id) {
+				locked = event.payload.locked;
+			}
 		});
 		return () => { unsub(); socket.unsubscribe('thread:' + thread.id); };
 	});
+
+	async function toggleLock() {
+		await api.setThreadLocked(thread.id, !locked);
+		locked = !locked;
+	}
 
 	async function load() {
 		messages = await api.listThreadMessages(thread.id).catch(() => []);
@@ -243,9 +255,14 @@
 			Back
 		</button>
 		<div class="tv-title">
-			<span class="tv-icon">💬</span>
+			{#if locked}<span class="lock-icon" title="Thread is locked">🔒</span>{/if}
 			<span>{thread.title}</span>
 		</div>
+		{#if canLock}
+			<button class="lock-btn" class:locked onclick={toggleLock} title={locked ? 'Unlock thread' : 'Lock thread'}>
+				{locked ? '🔓' : '🔒'}
+			</button>
+		{/if}
 	</div>
 
 	<div class="tv-messages" bind:this={scrollEl}>
@@ -316,6 +333,9 @@
 		{/if}
 	</div>
 
+	{#if locked}
+		<div class="tv-locked-notice">🔒 This thread is locked. No new replies can be posted.</div>
+	{:else}
 	<div class="tv-compose">
 		{#if replyingTo}
 			<div class="tv-reply-bar">
@@ -388,6 +408,7 @@
 			</button>
 		</div>
 	</div>
+	{/if}
 {#if lightboxSrc}
 	<LightboxImage src={lightboxSrc} onclose={() => lightboxSrc = null} />
 {/if}
@@ -434,6 +455,30 @@
 		min-width: 0;
 	}
 	.tv-icon { flex-shrink: 0; }
+	.lock-icon { font-size: 0.85rem; }
+	.lock-btn {
+		margin-left: auto;
+		background: none;
+		border: 1px solid var(--border);
+		color: var(--text-muted);
+		padding: 0.3rem 0.6rem;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 0.85rem;
+		flex-shrink: 0;
+		transition: border-color 0.1s, color 0.1s;
+	}
+	.lock-btn:hover { border-color: var(--accent); color: var(--text); }
+	.lock-btn.locked { border-color: #e04545; color: #e04545; }
+	.tv-locked-notice {
+		padding: 0.75rem 1rem;
+		text-align: center;
+		color: var(--text-muted);
+		font-size: 0.85rem;
+		border-top: 1px solid var(--border);
+		background: var(--bg-panel);
+		flex-shrink: 0;
+	}
 	.tv-title span:last-child {
 		overflow: hidden;
 		text-overflow: ellipsis;
