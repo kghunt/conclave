@@ -3,7 +3,7 @@
 	import { activeServer, channels, activeChannel, activeDM, currentUser, mentionedChannels, voiceParticipants } from '$lib/stores';
 	import { socket } from '$lib/socket';
 	import type { Channel } from '$lib/api';
-	import { voiceState, joinVoice, leaveVoice } from '$lib/voice';
+	import { voiceState, joinVoice, leaveVoice, peerVolumesStore, setPeerVolume } from '$lib/voice';
 	import VoicePanel from './VoicePanel.svelte';
 	import Avatar from './Avatar.svelte';
 	import UserBar from './UserBar.svelte';
@@ -218,13 +218,25 @@
 				{#if peers.length > 0}
 					<div class="voice-participant-list">
 						{#each peers as peer}
-							<div class="voice-participant">
+							{@const speaking = $voiceState.speakingUsers.has(peer.user_id)}
+							{@const isSelf = peer.user_id === $currentUser?.id}
+							<div class="voice-participant" class:speaking>
 								<img
 									src={peer.avatar_url || '/default-avatar.png'}
 									alt={peer.display_name}
 									class="vp-avatar"
+									class:speaking
 								/>
-								<span class="vp-name">{peer.display_name}</span>
+								<span class="vp-name" class:speaking>{peer.display_name}</span>
+								{#if inThisChannel && !isSelf}
+									<input
+										class="vp-vol"
+										type="range" min="0" max="2" step="0.05"
+										value={$peerVolumesStore[peer.user_id] ?? 1}
+										oninput={(e) => setPeerVolume(peer.user_id, +(e.target as HTMLInputElement).value)}
+										title="Volume"
+									/>
+								{/if}
 							</div>
 						{/each}
 					</div>
@@ -465,6 +477,10 @@
 		border-radius: 50%;
 		object-fit: cover;
 		flex-shrink: 0;
+		transition: box-shadow 0.1s;
+	}
+	.vp-avatar.speaking {
+		box-shadow: 0 0 0 2px #43b581;
 	}
 	.vp-name {
 		font-size: 0.78rem;
@@ -472,6 +488,19 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		flex: 1;
+		min-width: 0;
+		transition: color 0.1s;
+	}
+	.vp-name.speaking {
+		color: var(--text);
+	}
+	.vp-vol {
+		width: 44px;
+		flex-shrink: 0;
+		height: 3px;
+		accent-color: #43b581;
+		cursor: pointer;
 	}
 	.user-info {
 		display: flex;

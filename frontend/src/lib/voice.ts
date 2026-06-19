@@ -2,7 +2,6 @@ import { get, writable } from 'svelte/store';
 import {
 	Room,
 	RoomEvent,
-	ParticipantEvent,
 	Track,
 	type RemoteParticipant,
 	LocalAudioTrack,
@@ -88,13 +87,21 @@ function getRMS(analyser: AnalyserNode): number {
 
 function startLocalVAD() {
 	vadInterval = setInterval(() => {
-		if (!localAnalyser) return;
 		const me = get(currentUser);
-		if (!me) return;
-		const speaking = getRMS(localAnalyser) > 0.015;
 		voiceState.update((s) => {
 			const next = new Set(s.speakingUsers);
-			if (speaking) next.add(me.id); else next.delete(me.id);
+			// Self: WebAudio analyser (processed stream doesn't report to LiveKit)
+			if (me && localAnalyser) {
+				if (getRMS(localAnalyser) > 0.015) next.add(me.id);
+				else next.delete(me.id);
+			}
+			// Remote: poll LiveKit's cached isSpeaking (updated server-side ~200ms)
+			if (livekitRoom) {
+				for (const p of livekitRoom.remoteParticipants.values()) {
+					if (p.isSpeaking) next.add(p.identity);
+					else next.delete(p.identity);
+				}
+			}
 			return { ...s, speakingUsers: next };
 		});
 	}, 80);
@@ -171,16 +178,6 @@ export async function joinVoice(chId: string, srvId: string): Promise<void> {
 	// Create and configure the LiveKit room
 	livekitRoom = new Room({ adaptiveStream: true, dynacast: true });
 
-	function attachSpeakingListener(p: RemoteParticipant) {
-		p.on(ParticipantEvent.IsSpeakingChanged, (speaking: boolean) => {
-			voiceState.update((s) => {
-				const next = new Set(s.speakingUsers);
-				if (speaking) next.add(p.identity); else next.delete(p.identity);
-				return { ...s, speakingUsers: next };
-			});
-		});
-	}
-
 	livekitRoom.on(RoomEvent.ParticipantConnected, (p: RemoteParticipant) => {
 		const peer = participantToPeer(p);
 		voiceState.update((s) => ({
@@ -191,7 +188,6 @@ export async function joinVoice(chId: string, srvId: string): Promise<void> {
 			...vp,
 			[chId]: [...(vp[chId] ?? []).filter((x) => x.user_id !== peer.user_id), peer],
 		}));
-		attachSpeakingListener(p);
 		playPeerJoinSound();
 	});
 
@@ -238,11 +234,6 @@ export async function joinVoice(chId: string, srvId: string): Promise<void> {
 
 	await livekitRoom.connect(livekitURL, livekitToken);
 	await livekitRoom.localParticipant.publishTrack(localAudioTrack);
-
-	// Attach speaking listeners to participants already in the room
-	for (const p of livekitRoom.remoteParticipants.values()) {
-		attachSpeakingListener(p);
-	}
 
 	// Populate initial peer list from room state
 	const initialPeers = peersFromRoom();

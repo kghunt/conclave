@@ -1,9 +1,9 @@
 <script lang="ts">
 	import {
-		voiceState, leaveVoice, toggleMute, setMicGain, setPeerVolume, peerVolumesStore,
+		voiceState, leaveVoice, toggleMute, setMicGain,
 		setEchoCancellation, setNoiseSuppression, setAutoGainControl
 	} from '$lib/voice';
-	import { channels, currentUser, voiceParticipants } from '$lib/stores';
+	import { channels } from '$lib/stores';
 	import { get } from 'svelte/store';
 
 	let showSettings = $state(false);
@@ -17,15 +17,10 @@
 		setMicGain(+(e.target as HTMLInputElement).value);
 	}
 
-	function onPeerVolume(userId: string, e: Event) {
-		setPeerVolume(userId, +(e.target as HTMLInputElement).value);
-	}
-
 </script>
 
 {#if $voiceState.channelId}
 	{@const chId = $voiceState.channelId}
-	{@const allPeers = $voiceParticipants[chId] ?? []}
 	<div class="voice-panel">
 		<!-- Header row -->
 		<div class="voice-header">
@@ -100,29 +95,6 @@
 			</div>
 		{/if}
 
-		<!-- Participant list -->
-		{#if allPeers.length > 0}
-			<div class="voice-peers">
-				{#each allPeers as peer}
-					{@const isSelf = peer.user_id === $currentUser?.id}
-					{@const speaking = $voiceState.speakingUsers.has(peer.user_id)}
-					<div class="voice-peer" class:speaking>
-						<span class="speak-dot" class:active={speaking}></span>
-						<img src={peer.avatar_url || '/default-avatar.png'} alt="" class="peer-avatar" class:speaking />
-						<span class="peer-name">{peer.display_name}{isSelf ? ' (you)' : ''}</span>
-						{#if !isSelf}
-							<input
-								class="vol-slider peer-vol"
-								type="range" min="0" max="2" step="0.05"
-								value={$peerVolumesStore[peer.user_id] ?? 1}
-								oninput={(e) => onPeerVolume(peer.user_id, e)}
-								title="Participant volume"
-							/>
-						{/if}
-					</div>
-				{/each}
-			</div>
-		{/if}
 	</div>
 {/if}
 
@@ -237,16 +209,4 @@
 		margin: 2px 0 0;
 		line-height: 1.4;
 	}
-	.voice-peers { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
-	.voice-peer { display: flex; align-items: center; gap: 5px; padding: 2px 0; border-radius: 4px; }
-	.speak-dot {
-		width: 6px; height: 6px; border-radius: 50%;
-		background: #444c5c; flex-shrink: 0; transition: background 0.1s;
-	}
-	.speak-dot.active { background: #43b581; }
-	.peer-avatar { width: 16px; height: 16px; border-radius: 50%; object-fit: cover; flex-shrink: 0; transition: box-shadow 0.1s; }
-	.peer-avatar.speaking { box-shadow: 0 0 0 2px #43b581; }
-	.peer-name { font-size: 0.78rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
-	.voice-peer.speaking .peer-name { color: var(--text); }
-	.peer-vol { width: 48px; flex: none; }
 </style>
