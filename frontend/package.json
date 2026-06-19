@@ -23,6 +23,7 @@
 	"dependencies": {
 		"@emoji-mart/data": "^1.2.1",
 		"@sveltejs/adapter-static": "^3.0.10",
-		"emoji-mart": "^5.6.0"
+		"emoji-mart": "^5.6.0",
+		"livekit-client": "^2.19.2"
 	}
 }

@@ -17,45 +17,14 @@ type WSHandler struct {
 	auth           *auth.Service
 	db             *pgxpool.Pool
 	allowedOrigins map[string]bool
-	turnServer     string
-	turnUsername   string
-	turnCredential string
 }
 
-func NewWS(hub *ws.Hub, a *auth.Service, db *pgxpool.Pool, baseURL, frontendURL, turnServer, turnUsername, turnCredential string) *WSHandler {
+func NewWS(hub *ws.Hub, a *auth.Service, db *pgxpool.Pool, baseURL, frontendURL string) *WSHandler {
 	origins := map[string]bool{baseURL: true}
 	if frontendURL != "" && frontendURL != baseURL {
 		origins[frontendURL] = true
 	}
-	return &WSHandler{
-		hub:            hub,
-		auth:           a,
-		db:             db,
-		allowedOrigins: origins,
-		turnServer:     turnServer,
-		turnUsername:   turnUsername,
-		turnCredential: turnCredential,
-	}
-}
-
-func (h *WSHandler) VoiceConfig(w http.ResponseWriter, r *http.Request) {
-	type iceServer struct {
-		URLs       []string `json:"urls"`
-		Username   string   `json:"username,omitempty"`
-		Credential string   `json:"credential,omitempty"`
-	}
-	servers := []iceServer{
-		{URLs: []string{"stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"}},
-	}
-	if h.turnServer != "" {
-		servers = append(servers, iceServer{
-			URLs:       []string{h.turnServer},
-			Username:   h.turnUsername,
-			Credential: h.turnCredential,
-		})
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"ice_servers": servers})
+	return &WSHandler{hub: hub, auth: a, db: db, allowedOrigins: origins}
 }
 
 func (h *WSHandler) Handle(w http.ResponseWriter, r *http.Request) {
@@ -188,23 +157,6 @@ func (h *WSHandler) onEvent(c *ws.Client, event ws.Event) {
 			h.hub.Broadcast("server:"+svrID, ws.Event{Type: "voice.left", Payload: leftPayload})
 		}
 
-	case "voice.signal":
-		// Forward WebRTC signaling (offer/answer/candidate) to the target peer.
-		var body struct {
-			ChannelID string          `json:"channel_id"`
-			To        string          `json:"to"`
-			Signal    json.RawMessage `json:"signal"`
-		}
-		if err := json.Unmarshal(event.Payload, &body); err != nil || body.ChannelID == "" || body.To == "" {
-			return
-		}
-		fwdPayload, _ := json.Marshal(map[string]any{
-			"channel_id": body.ChannelID,
-			"from":       c.UserID(),
-			"signal":     body.Signal,
-		})
-		data, _ := json.Marshal(ws.Event{Type: "voice.signal", Payload: fwdPayload})
-		h.hub.VoiceSendTo(body.ChannelID, body.To, data)
 	}
 }
 

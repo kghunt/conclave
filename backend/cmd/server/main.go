@@ -58,7 +58,8 @@ func main() {
 	messagesH := handlers.NewMessages(pool, hub, pushH, cfg.AvatarDir, cfg.BaseURL)
 	dmsH := handlers.NewDMs(pool, hub, pushH, cfg.AvatarDir, cfg.BaseURL)
 	rolesH := handlers.NewRoles(pool, hub)
-	wsH := handlers.NewWS(hub, authSvc, pool, cfg.BaseURL, cfg.FrontendURL, cfg.TURNServer, cfg.TURNUsername, cfg.TURNCredential)
+	wsH := handlers.NewWS(hub, authSvc, pool, cfg.BaseURL, cfg.FrontendURL)
+	voiceH := handlers.NewVoice(pool, cfg.LiveKitURL, cfg.LiveKitKey, cfg.LiveKitSecret)
 	go wsH.RunPresenceBroadcaster()
 
 	r := chi.NewRouter()
@@ -93,7 +94,7 @@ func main() {
 		r.Use(apimiddleware.Auth(authSvc, pool))
 
 		// voice
-		r.Get("/api/voice/config", wsH.VoiceConfig)
+		r.Get("/api/voice/token", voiceH.Token)
 
 		// users
 		r.Get("/api/users/me", usersH.Me)
