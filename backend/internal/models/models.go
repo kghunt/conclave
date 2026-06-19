@@ -130,11 +130,13 @@ type DMConversation struct {
 }
 
 type DirectMessage struct {
-	ID             string    `json:"id"`
-	ConversationID string    `json:"conversation_id"`
-	Sender         *User     `json:"sender"`
-	Content        string    `json:"content"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID             string     `json:"id"`
+	ConversationID string     `json:"conversation_id"`
+	Sender         *User      `json:"sender"`
+	Content        string     `json:"content"`
+	EditedAt       *time.Time `json:"edited_at,omitempty"`
+	Reactions      []Reaction `json:"reactions"`
+	CreatedAt      time.Time  `json:"created_at"`
 }
 
 type Invite struct {

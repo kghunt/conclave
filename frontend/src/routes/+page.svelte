@@ -209,6 +209,29 @@
 			if (event.type === 'dm.delete' && event.payload.conversation_id === convId) {
 				dmMessages = dmMessages.filter((m) => m.id !== event.payload.id);
 			}
+			if (event.type === 'dm.edit' && event.payload.conversation_id === convId) {
+				dmMessages = dmMessages.map((m) => m.id === event.payload.id ? { ...event.payload, reactions: m.reactions } : m);
+			}
+			if (event.type === 'dm.reaction.toggle' && event.payload.conversation_id === convId) {
+				const { message_id, emoji, user_id, action } = event.payload;
+				const isMine = user_id === $currentUser?.id;
+				dmMessages = dmMessages.map((m) => {
+					if (m.id !== message_id) return m;
+					const reactions = [...(m.reactions ?? [])];
+					const idx = reactions.findIndex((r) => r.emoji === emoji);
+					if (action === 'add') {
+						if (idx >= 0) reactions[idx] = { ...reactions[idx], count: reactions[idx].count + 1, mine: reactions[idx].mine || isMine };
+						else reactions.push({ emoji, count: 1, mine: isMine });
+					} else {
+						if (idx >= 0) {
+							const next = { ...reactions[idx], count: reactions[idx].count - 1, mine: isMine ? false : reactions[idx].mine };
+							if (next.count <= 0) reactions.splice(idx, 1);
+							else reactions[idx] = next;
+						}
+					}
+					return { ...m, reactions };
+				});
+			}
 		});
 
 		return () => {
@@ -481,14 +504,24 @@
 	}
 
 	async function onreact(messageId: string, emoji: string) {
-		if (!$activeServer || !$activeChannel) return;
-		const msg = messages.find((m) => m.id === messageId) as Message | undefined;
-		if (!msg) return;
-		const existing = msg.reactions?.find((rx: Reaction) => rx.emoji === emoji);
-		if (existing?.mine) {
-			await api.removeReaction($activeServer.id, $activeChannel.id, messageId, emoji);
-		} else {
-			await api.addReaction($activeServer.id, $activeChannel.id, messageId, emoji);
+		if ($activeDM) {
+			const msg = dmMessages.find((m) => m.id === messageId);
+			if (!msg) return;
+			const existing = msg.reactions?.find((rx: Reaction) => rx.emoji === emoji);
+			if (existing?.mine) {
+				await api.removeDMReaction($activeDM.id, messageId, emoji);
+			} else {
+				await api.addDMReaction($activeDM.id, messageId, emoji);
+			}
+		} else if ($activeServer && $activeChannel) {
+			const msg = messages.find((m) => m.id === messageId) as Message | undefined;
+			if (!msg) return;
+			const existing = msg.reactions?.find((rx: Reaction) => rx.emoji === emoji);
+			if (existing?.mine) {
+				await api.removeReaction($activeServer.id, $activeChannel.id, messageId, emoji);
+			} else {
+				await api.addReaction($activeServer.id, $activeChannel.id, messageId, emoji);
+			}
 		}
 	}
 

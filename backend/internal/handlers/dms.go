@@ -114,12 +114,28 @@ func (h *DMsHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.db.Query(r.Context(), `
-		SELECT dm.id, dm.conversation_id, dm.content, dm.created_at,
-		       u.id, u.display_name, u.bio, u.avatar_url
-		FROM direct_messages dm JOIN users u ON u.id = dm.sender_id
+		SELECT dm.id, dm.conversation_id, dm.content, dm.edited_at, dm.created_at,
+		       u.id, u.display_name, u.bio, u.avatar_url,
+		       COALESCE(
+		           json_agg(
+		               json_build_object('emoji', rxn.emoji, 'count', rxn.cnt, 'mine', rxn.mine)
+		               ORDER BY rxn.emoji
+		           ) FILTER (WHERE rxn.emoji IS NOT NULL),
+		           '[]'
+		       ) AS reactions
+		FROM direct_messages dm
+		JOIN users u ON u.id = dm.sender_id
+		LEFT JOIN (
+		    SELECT message_id, emoji,
+		           COUNT(*) AS cnt,
+		           BOOL_OR(user_id = $2) AS mine
+		    FROM dm_message_reactions
+		    GROUP BY message_id, emoji
+		) rxn ON rxn.message_id = dm.id
 		WHERE dm.conversation_id = $1
+		GROUP BY dm.id, u.id
 		ORDER BY dm.created_at DESC LIMIT 50
-	`, convID)
+	`, convID, userID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "query failed")
 		return
@@ -130,9 +146,15 @@ func (h *DMsHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var m models.DirectMessage
 		m.Sender = &models.User{}
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Content, &m.CreatedAt,
-			&m.Sender.ID, &m.Sender.DisplayName, &m.Sender.Bio, &m.Sender.AvatarURL); err != nil {
+		var reactionsJSON []byte
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Content, &m.EditedAt, &m.CreatedAt,
+			&m.Sender.ID, &m.Sender.DisplayName, &m.Sender.Bio, &m.Sender.AvatarURL,
+			&reactionsJSON); err != nil {
 			continue
+		}
+		json.Unmarshal(reactionsJSON, &m.Reactions)
+		if m.Reactions == nil {
+			m.Reactions = []models.Reaction{}
 		}
 		messages = append(messages, m)
 	}
@@ -237,6 +259,101 @@ func (h *DMsHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, m)
+}
+
+func (h *DMsHandler) EditMessage(w http.ResponseWriter, r *http.Request) {
+	convID := chi.URLParam(r, "convID")
+	messageID := chi.URLParam(r, "messageID")
+	userID := middleware.UserID(r)
+
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := decodeJSON(r, &body); err != nil || body.Content == "" {
+		writeErr(w, http.StatusBadRequest, "content required")
+		return
+	}
+	if len(body.Content) > 4000 {
+		writeErr(w, http.StatusBadRequest, "message too long")
+		return
+	}
+
+	var m models.DirectMessage
+	m.Sender = &models.User{}
+	err := h.db.QueryRow(r.Context(), `
+		WITH upd AS (
+			UPDATE direct_messages SET content = $1, edited_at = NOW()
+			WHERE id = $2 AND sender_id = $3 AND conversation_id = $4
+			RETURNING id, conversation_id, content, edited_at, created_at, sender_id
+		)
+		SELECT upd.id, upd.conversation_id, upd.content, upd.edited_at, upd.created_at,
+		       u.id, u.display_name, u.bio, u.avatar_url
+		FROM upd JOIN users u ON u.id = upd.sender_id
+	`, body.Content, messageID, userID, convID).Scan(
+		&m.ID, &m.ConversationID, &m.Content, &m.EditedAt, &m.CreatedAt,
+		&m.Sender.ID, &m.Sender.DisplayName, &m.Sender.Bio, &m.Sender.AvatarURL,
+	)
+	if err != nil {
+		writeErr(w, http.StatusForbidden, "not your message")
+		return
+	}
+	m.Reactions = []models.Reaction{}
+
+	payload, _ := json.Marshal(m)
+	h.hub.Broadcast("dm:"+convID, ws.Event{Type: "dm.edit", Payload: payload})
+	writeJSON(w, http.StatusOK, m)
+}
+
+func (h *DMsHandler) AddReaction(w http.ResponseWriter, r *http.Request) {
+	convID := chi.URLParam(r, "convID")
+	messageID := chi.URLParam(r, "messageID")
+	emoji := chi.URLParam(r, "emoji")
+	userID := middleware.UserID(r)
+
+	if len([]rune(emoji)) > 16 || emoji == "" {
+		writeErr(w, http.StatusBadRequest, "invalid emoji")
+		return
+	}
+
+	var isParticipant bool
+	h.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM dm_conversations WHERE id=$1 AND (user1_id=$2 OR user2_id=$2))`, convID, userID).Scan(&isParticipant)
+	if !isParticipant {
+		writeErr(w, http.StatusForbidden, "not a participant")
+		return
+	}
+
+	h.db.Exec(r.Context(), `
+		INSERT INTO dm_message_reactions (message_id, user_id, emoji) VALUES ($1, $2, $3)
+		ON CONFLICT DO NOTHING
+	`, messageID, userID, emoji)
+
+	h.broadcastDMReaction(convID, messageID, emoji, userID, "add")
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (h *DMsHandler) RemoveReaction(w http.ResponseWriter, r *http.Request) {
+	convID := chi.URLParam(r, "convID")
+	messageID := chi.URLParam(r, "messageID")
+	emoji := chi.URLParam(r, "emoji")
+	userID := middleware.UserID(r)
+
+	h.db.Exec(r.Context(), `
+		DELETE FROM dm_message_reactions WHERE message_id=$1 AND user_id=$2 AND emoji=$3
+	`, messageID, userID, emoji)
+
+	h.broadcastDMReaction(convID, messageID, emoji, userID, "remove")
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (h *DMsHandler) broadcastDMReaction(convID, messageID, emoji, userID, action string) {
+	payload, _ := json.Marshal(map[string]string{
+		"message_id":      messageID,
+		"conversation_id": convID,
+		"emoji":           emoji,
+		"user_id":         userID,
+		"action":          action,
+	})
+	h.hub.Broadcast("dm:"+convID, ws.Event{Type: "dm.reaction.toggle", Payload: payload})
 }
 
 func (h *DMsHandler) MarkRead(w http.ResponseWriter, r *http.Request) {

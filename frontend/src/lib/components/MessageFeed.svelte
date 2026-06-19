@@ -115,8 +115,12 @@
 	}
 
 	async function saveEdit(m: AnyMessage) {
-		if (!editContent.trim() || !$activeServer || !$activeChannel) return;
-		await api.editMessage($activeServer.id, $activeChannel.id, m.id, editContent.trim());
+		if (!editContent.trim()) return;
+		if (isDM && $activeDM) {
+			await api.editDM($activeDM.id, m.id, editContent.trim());
+		} else if (!isDM && $activeServer && $activeChannel) {
+			await api.editMessage($activeServer.id, $activeChannel.id, m.id, editContent.trim());
+		}
 		cancelEdit();
 	}
 
@@ -169,7 +173,7 @@
 					<div class="header">
 						<span class="name" style={author.role_color ? `color:${author.role_color}` : ''}>{author.display_name}</span>
 						<span class="time">{formatTime(msg.created_at)}</span>
-						{#if isMessage(msg) && msg.edited_at}
+						{#if (isMessage(msg) && msg.edited_at) || (!isMessage(msg) && (msg as DirectMessage).edited_at)}
 							<span class="edited">(edited)</span>
 						{/if}
 					</div>
@@ -190,9 +194,10 @@
 					{:else}
 						<p>{#each parseContent(msg.content) as part}{#if part.type === 'mention'}<span class="mention">{part.value}</span>{:else}{part.value}{/if}{/each}</p>
 					{/if}
-					{#if isMessage(msg) && msg.reactions?.length > 0}
+					{@const msgReactions = isMessage(msg) ? msg.reactions : (msg as DirectMessage).reactions}
+					{#if msgReactions?.length > 0}
 						<div class="reactions">
-							{#each msg.reactions as rxn}
+							{#each msgReactions as rxn}
 								<button class="reaction-pill" class:mine={rxn.mine} onclick={() => onreact?.(msg.id, rxn.emoji)} title={rxn.mine ? 'Remove reaction' : 'React'}>{rxn.emoji} <span class="rxn-count">{rxn.count}</span></button>
 							{/each}
 						</div>
@@ -218,9 +223,10 @@
 					{:else}
 						<p>{#each parseContent(msg.content) as part}{#if part.type === 'mention'}<span class="mention">{part.value}</span>{:else}{part.value}{/if}{/each}</p>
 					{/if}
-					{#if isMessage(msg) && msg.reactions?.length > 0}
+					{@const msgReactions = isMessage(msg) ? msg.reactions : (msg as DirectMessage).reactions}
+					{#if msgReactions?.length > 0}
 						<div class="reactions">
-							{#each msg.reactions as rxn}
+							{#each msgReactions as rxn}
 								<button class="reaction-pill" class:mine={rxn.mine} onclick={() => onreact?.(msg.id, rxn.emoji)} title={rxn.mine ? 'Remove reaction' : 'React'}>{rxn.emoji} <span class="rxn-count">{rxn.count}</span></button>
 							{/each}
 						</div>
@@ -231,7 +237,7 @@
 			{#if !editing}
 				<!-- Desktop: hover-reveal action buttons -->
 				<div class="msg-actions desktop-actions">
-					{#if isMessage(msg) && !isDM && onreact}
+					{#if onreact}
 						<button class="action-btn" onclick={(e) => {
 							e.stopPropagation();
 							if (reactionPickerFor === msg.id) { reactionPickerFor = null; reactionPickerRect = null; }
@@ -241,7 +247,7 @@
 					{#if isMessage(msg) && onreply}
 						<button class="action-btn" onclick={() => onreply(msg as Message)} title="Reply">↩</button>
 					{/if}
-					{#if isMessage(msg) && isOwn}
+					{#if isOwn}
 						<button class="action-btn edit" onclick={() => startEdit(msg)} title="Edit">✏</button>
 					{/if}
 					{#if canDelete}
@@ -277,12 +283,13 @@
 {#if mobileMenuFor && mobileMenuRect}
 	{@const menuMsgId = mobileMenuFor}
 	{@const menuMsg = messages.find(m => m.id === menuMsgId)}
-	{@const menuIsOwn = menuMsg?.author?.id === $currentUser?.id}
+	{@const menuAuthor = menuMsg ? getAuthor(menuMsg) : null}
+	{@const menuIsOwn = menuAuthor?.id === $currentUser?.id}
 	{@const menuCanDelete = menuIsOwn || isAdmin}
 	<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
 	<div class="mobile-menu-overlay" onclick={() => { mobileMenuFor = null; mobileMenuRect = null; }}></div>
 	<div class="mobile-context-menu" style="bottom:{window.innerHeight - mobileMenuRect.top + 8}px;left:{Math.min(mobileMenuRect.right - 160, window.innerWidth - 172)}px">
-		{#if menuMsg && isMessage(menuMsg) && !isDM && onreact}
+		{#if menuMsg && onreact}
 			<button onclick={() => {
 				reactionPickerFor = menuMsgId;
 				reactionPickerRect = mobileMenuRect;
@@ -292,7 +299,7 @@
 		{#if menuMsg && isMessage(menuMsg) && onreply}
 			<button onclick={() => { onreply(menuMsg as Message); mobileMenuFor = null; mobileMenuRect = null; }}>↩ Reply</button>
 		{/if}
-		{#if menuIsOwn && menuMsg && isMessage(menuMsg)}
+		{#if menuIsOwn && menuMsg}
 			<button onclick={() => { startEdit(menuMsg); mobileMenuFor = null; mobileMenuRect = null; }}>✏ Edit</button>
 		{/if}
 		{#if menuCanDelete && menuMsg}
