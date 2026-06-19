@@ -6,7 +6,9 @@ export type WSEvent =
 	| { type: 'message.edit'; payload: Message }
 	| { type: 'message.delete'; payload: { id: string; channel_id: string } }
 	| { type: 'dm.new'; payload: DirectMessage }
+	| { type: 'dm.edit'; payload: DirectMessage }
 	| { type: 'dm.delete'; payload: { id: string; conversation_id: string } }
+	| { type: 'dm.reaction.toggle'; payload: { message_id: string; conversation_id: string; emoji: string; user_id: string; action: 'add' | 'remove' } }
 	| { type: 'member.join'; payload: { server_id: string; user_id: string } }
 	| { type: 'member.leave'; payload: { server_id: string; user_id: string } }
 	| { type: 'friend.accepted'; payload: { id: string; display_name: string; avatar_url: string } }

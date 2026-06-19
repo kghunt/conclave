@@ -104,6 +104,12 @@ export const api = {
 	listDMMessages: (convId: string) => req<DirectMessage[]>('GET', `/dms/conversations/${convId}/messages`),
 	sendDM: (convId: string, content: string) =>
 		req<DirectMessage>('POST', `/dms/conversations/${convId}/messages`, { content }),
+	editDM: (convId: string, messageId: string, content: string) =>
+		req<DirectMessage>('PATCH', `/dms/conversations/${convId}/messages/${messageId}`, { content }),
+	addDMReaction: (convId: string, messageId: string, emoji: string) =>
+		req<void>('PUT', `/dms/conversations/${convId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`),
+	removeDMReaction: (convId: string, messageId: string, emoji: string) =>
+		req<void>('DELETE', `/dms/conversations/${convId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`),
 	markDMRead: (convId: string) =>
 		req<void>('POST', `/dms/conversations/${convId}/read`),
 
@@ -359,6 +365,8 @@ export interface DirectMessage {
 	conversation_id: string;
 	sender: User;
 	content: string;
+	edited_at?: string;
+	reactions: Reaction[];
 	created_at: string;
 }
 

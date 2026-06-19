@@ -170,7 +170,10 @@ func main() {
 		r.Post("/api/dms/{userID}", dmsH.GetOrCreate)
 		r.Get("/api/dms/conversations/{convID}/messages", dmsH.ListMessages)
 		r.Post("/api/dms/conversations/{convID}/messages", dmsH.SendMessage)
+		r.Patch("/api/dms/conversations/{convID}/messages/{messageID}", dmsH.EditMessage)
 		r.Delete("/api/dms/conversations/{convID}/messages/{messageID}", dmsH.DeleteMessage)
+		r.Put("/api/dms/conversations/{convID}/messages/{messageID}/reactions/{emoji}", dmsH.AddReaction)
+		r.Delete("/api/dms/conversations/{convID}/messages/{messageID}/reactions/{emoji}", dmsH.RemoveReaction)
 		r.Post("/api/dms/conversations/{convID}/read", dmsH.MarkRead)
 
 		// file upload
