@@ -95,6 +95,7 @@ func main() {
 
 		// voice
 		r.Get("/api/voice/token", voiceH.Token)
+		r.Get("/api/voice/dm-token", voiceH.DMToken)
 
 		// users
 		r.Get("/api/users/me", usersH.Me)

@@ -8,9 +8,11 @@
 
 	let showSettings = $state(false);
 
-	function channelName(channelId: string | null): string {
-		if (!channelId) return '';
-		return get(channels).find((c) => c.id === channelId)?.name ?? '…';
+	function displayLabel(): string {
+		const s = $voiceState;
+		if (s.label) return s.label;
+		if (!s.channelId) return '';
+		return get(channels).find((c) => c.id === s.channelId)?.name ?? '…';
 	}
 
 	function onMicGain(e: Event) {
@@ -19,14 +21,13 @@
 
 </script>
 
-{#if $voiceState.channelId}
-	{@const chId = $voiceState.channelId}
+{#if $voiceState.channelId || $voiceState.dmConvId}
 	<div class="voice-panel">
 		<!-- Header row -->
 		<div class="voice-header">
 			<div class="voice-title">
 				<span class="voice-dot" class:connecting={$voiceState.connecting}></span>
-				<span class="voice-name">{channelName(chId)}</span>
+				<span class="voice-name">{displayLabel()}</span>
 				{#if $voiceState.connecting}<span class="voice-status">Connecting…</span>{/if}
 			</div>
 			<div class="voice-actions">
