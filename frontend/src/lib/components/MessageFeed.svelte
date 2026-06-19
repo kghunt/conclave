@@ -70,6 +70,10 @@
 		return 'author' in m;
 	}
 
+	function getReactions(m: AnyMessage) {
+		return (isMessage(m) ? m.reactions : (m as DirectMessage).reactions) ?? [];
+	}
+
 	function getAuthor(m: AnyMessage) {
 		return isMessage(m) ? m.author : (m as DirectMessage).sender;
 	}
@@ -194,10 +198,9 @@
 					{:else}
 						<p>{#each parseContent(msg.content) as part}{#if part.type === 'mention'}<span class="mention">{part.value}</span>{:else}{part.value}{/if}{/each}</p>
 					{/if}
-					{@const msgReactions = isMessage(msg) ? msg.reactions : (msg as DirectMessage).reactions}
-					{#if msgReactions?.length > 0}
+					{#if getReactions(msg).length > 0}
 						<div class="reactions">
-							{#each msgReactions as rxn}
+							{#each getReactions(msg) as rxn}
 								<button class="reaction-pill" class:mine={rxn.mine} onclick={() => onreact?.(msg.id, rxn.emoji)} title={rxn.mine ? 'Remove reaction' : 'React'}>{rxn.emoji} <span class="rxn-count">{rxn.count}</span></button>
 							{/each}
 						</div>
@@ -223,10 +226,9 @@
 					{:else}
 						<p>{#each parseContent(msg.content) as part}{#if part.type === 'mention'}<span class="mention">{part.value}</span>{:else}{part.value}{/if}{/each}</p>
 					{/if}
-					{@const msgReactions = isMessage(msg) ? msg.reactions : (msg as DirectMessage).reactions}
-					{#if msgReactions?.length > 0}
+					{#if getReactions(msg).length > 0}
 						<div class="reactions">
-							{#each msgReactions as rxn}
+							{#each getReactions(msg) as rxn}
 								<button class="reaction-pill" class:mine={rxn.mine} onclick={() => onreact?.(msg.id, rxn.emoji)} title={rxn.mine ? 'Remove reaction' : 'React'}>{rxn.emoji} <span class="rxn-count">{rxn.count}</span></button>
 							{/each}
 						</div>
