@@ -22,7 +22,11 @@
 	let editShowInDiscovery = $state(server.show_in_discovery ?? false);
 	let editMemberInvites = $state(server.member_invites_enabled);
 	let editExpiryDays = $state(server.member_invite_expiry_days ?? 7);
+	let editWelcomeChannel = $state(server.welcome_channel_id ?? '');
+	let editWelcomeMessage = $state(server.welcome_message ?? '');
 	let saving = $state(false);
+
+	const textChannels = $derived($channels.filter((c) => c.type === 'text'));
 
 	// Invite state
 	let generatedInvite = $state<Invite | null>(null);
@@ -48,7 +52,9 @@
 				is_public: editPublic,
 				show_in_discovery: editShowInDiscovery,
 				member_invites_enabled: editMemberInvites,
-				member_invite_expiry_days: editExpiryDays
+				member_invite_expiry_days: editExpiryDays,
+				welcome_channel_id: editWelcomeChannel || null,
+				welcome_message: editWelcomeMessage
 			});
 			servers.update((prev) => prev.map((s) => s.id === updated.id ? { ...s, ...updated } : s));
 			if ($activeServer?.id === updated.id) activeServer.set({ ...$activeServer, ...updated });
@@ -189,6 +195,28 @@
 				</select>
 			</label>
 		{/if}
+		<div class="section-divider">Join Message</div>
+		<p class="setting-hint">When a user joins, post a message to a channel. Use <code>{'{user}'}</code> for their name.</p>
+		<label>
+			Channel
+			<select bind:value={editWelcomeChannel}>
+				<option value="">— disabled —</option>
+				{#each textChannels as ch}
+					<option value={ch.id}>{ch.name}</option>
+				{/each}
+			</select>
+		</label>
+		{#if editWelcomeChannel}
+			<label>
+				Message
+				<textarea
+					bind:value={editWelcomeMessage}
+					rows="2"
+					placeholder="Welcome {'{user}'} to the space! 🎉"
+				></textarea>
+			</label>
+		{/if}
+
 		<div class="edit-actions">
 			<button class="cancel" onclick={() => (showEdit = false)}>Back</button>
 			<button class="save" onclick={saveEdit} disabled={saving || !editName.trim()}>
@@ -309,6 +337,19 @@
 		padding: 0 0.625rem 0.375rem;
 		font-size: 0.7rem;
 		color: var(--text-muted);
+	}
+	.setting-hint {
+		font-size: 0.75rem;
+		color: var(--text-muted);
+		padding: 0 0.625rem 0.25rem;
+		margin: 0;
+		line-height: 1.4;
+	}
+	.setting-hint code {
+		background: var(--bg-input);
+		border-radius: 3px;
+		padding: 0 3px;
+		font-size: 0.8em;
 	}
 	.section-divider {
 		padding: 0.625rem 0.625rem 0.25rem;

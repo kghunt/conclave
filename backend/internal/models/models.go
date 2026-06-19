@@ -45,6 +45,8 @@ type Server struct {
 	InviteCode             string    `json:"invite_code"`
 	MemberInvitesEnabled   bool      `json:"member_invites_enabled"`
 	MemberInviteExpiryDays int       `json:"member_invite_expiry_days"`
+	WelcomeChannelID       *string   `json:"welcome_channel_id"`
+	WelcomeMessage         string    `json:"welcome_message"`
 	CreatedAt              time.Time `json:"created_at"`
 	// populated on list/get
 	Role                   string    `json:"role,omitempty"`
