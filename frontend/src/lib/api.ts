@@ -30,7 +30,7 @@ export const api = {
 		req<Server>('POST', '/servers', data),
 	getServer: (id: string) => req<Server>('GET', `/servers/${id}`),
 	joinServer: (id: string) => req<void>('POST', `/servers/${id}/join`),
-	updateServer: (id: string, data: { name?: string; description?: string; rules?: string; is_public?: boolean; show_in_discovery?: boolean; member_invites_enabled?: boolean; member_invite_expiry_days?: number }) =>
+	updateServer: (id: string, data: { name?: string; description?: string; rules?: string; is_public?: boolean; show_in_discovery?: boolean; member_invites_enabled?: boolean; member_invite_expiry_days?: number; welcome_channel_id?: string | null; welcome_message?: string }) =>
 		req<Server>('PATCH', `/servers/${id}`, data),
 	uploadServerIcon: async (id: string, file: File) => {
 		const form = new FormData();
@@ -259,6 +259,8 @@ export interface Server {
 	invite_code: string;
 	member_invites_enabled: boolean;
 	member_invite_expiry_days: number;
+	welcome_channel_id: string | null;
+	welcome_message: string;
 	role?: string;
 	created_at: string;
 }

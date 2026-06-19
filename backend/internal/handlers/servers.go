@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
@@ -34,7 +35,8 @@ func (h *ServersHandler) List(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r)
 	rows, err := h.db.Query(r.Context(), `
 		SELECT s.id, s.name, s.description, s.rules, s.icon_url, s.owner_id, s.is_public, s.show_in_discovery,
-		       s.invite_code, s.member_invites_enabled, s.member_invite_expiry_days, s.created_at, sm.role
+		       s.invite_code, s.member_invites_enabled, s.member_invite_expiry_days,
+		       s.welcome_channel_id, s.welcome_message, s.created_at, sm.role
 		FROM servers s
 		JOIN server_members sm ON sm.server_id = s.id AND sm.user_id = $1
 		ORDER BY s.name
@@ -49,7 +51,8 @@ func (h *ServersHandler) List(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var s models.Server
 		if err := rows.Scan(&s.ID, &s.Name, &s.Description, &s.Rules, &s.IconURL, &s.OwnerID, &s.IsPublic, &s.ShowInDiscovery,
-			&s.InviteCode, &s.MemberInvitesEnabled, &s.MemberInviteExpiryDays, &s.CreatedAt, &s.Role); err != nil {
+			&s.InviteCode, &s.MemberInvitesEnabled, &s.MemberInviteExpiryDays,
+			&s.WelcomeChannelID, &s.WelcomeMessage, &s.CreatedAt, &s.Role); err != nil {
 			continue
 		}
 		servers = append(servers, s)
@@ -87,10 +90,12 @@ func (h *ServersHandler) Create(w http.ResponseWriter, r *http.Request) {
 		INSERT INTO servers (name, description, owner_id, is_public, invite_code)
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, name, description, rules, icon_url, owner_id, is_public, show_in_discovery,
-		          invite_code, member_invites_enabled, member_invite_expiry_days, created_at
+		          invite_code, member_invites_enabled, member_invite_expiry_days,
+		          welcome_channel_id, welcome_message, created_at
 	`, body.Name, body.Description, userID, body.IsPublic, inviteCode).Scan(
 		&s.ID, &s.Name, &s.Description, &s.Rules, &s.IconURL, &s.OwnerID, &s.IsPublic, &s.ShowInDiscovery,
-		&s.InviteCode, &s.MemberInvitesEnabled, &s.MemberInviteExpiryDays, &s.CreatedAt,
+		&s.InviteCode, &s.MemberInvitesEnabled, &s.MemberInviteExpiryDays,
+		&s.WelcomeChannelID, &s.WelcomeMessage, &s.CreatedAt,
 	)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "create failed")
@@ -126,6 +131,8 @@ func (h *ServersHandler) Update(w http.ResponseWriter, r *http.Request) {
 		ShowInDiscovery        *bool   `json:"show_in_discovery"`
 		MemberInvitesEnabled   *bool   `json:"member_invites_enabled"`
 		MemberInviteExpiryDays *int    `json:"member_invite_expiry_days"`
+		WelcomeChannelID       *string `json:"welcome_channel_id"` // empty string means clear
+		WelcomeMessage         *string `json:"welcome_message"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body")
@@ -134,6 +141,12 @@ func (h *ServersHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if body.MemberInviteExpiryDays != nil && *body.MemberInviteExpiryDays < 1 {
 		writeErr(w, http.StatusBadRequest, "expiry must be at least 1 day")
 		return
+	}
+
+	// Treat empty string welcome_channel_id as NULL (clear the setting)
+	var welcomeChannelID *string
+	if body.WelcomeChannelID != nil && *body.WelcomeChannelID != "" {
+		welcomeChannelID = body.WelcomeChannelID
 	}
 
 	var s models.Server
@@ -145,14 +158,22 @@ func (h *ServersHandler) Update(w http.ResponseWriter, r *http.Request) {
 			is_public                 = COALESCE($5, is_public),
 			show_in_discovery         = COALESCE($6, show_in_discovery),
 			member_invites_enabled    = COALESCE($7, member_invites_enabled),
-			member_invite_expiry_days = COALESCE($8, member_invite_expiry_days)
+			member_invite_expiry_days = COALESCE($8, member_invite_expiry_days),
+			welcome_channel_id        = CASE WHEN $9::uuid IS NOT NULL THEN $9::uuid
+			                                 WHEN $10 THEN NULL
+			                                 ELSE welcome_channel_id END,
+			welcome_message           = COALESCE($11, welcome_message)
 		WHERE id = $1
 		RETURNING id, name, description, rules, icon_url, owner_id, is_public, show_in_discovery,
-		          invite_code, member_invites_enabled, member_invite_expiry_days, created_at
+		          invite_code, member_invites_enabled, member_invite_expiry_days,
+		          welcome_channel_id, welcome_message, created_at
 	`, serverID, body.Name, body.Description, body.Rules, body.IsPublic, body.ShowInDiscovery,
-		body.MemberInvitesEnabled, body.MemberInviteExpiryDays).Scan(
+		body.MemberInvitesEnabled, body.MemberInviteExpiryDays,
+		welcomeChannelID, body.WelcomeChannelID != nil && *body.WelcomeChannelID == "",
+		body.WelcomeMessage).Scan(
 		&s.ID, &s.Name, &s.Description, &s.Rules, &s.IconURL, &s.OwnerID, &s.IsPublic, &s.ShowInDiscovery,
-		&s.InviteCode, &s.MemberInvitesEnabled, &s.MemberInviteExpiryDays, &s.CreatedAt,
+		&s.InviteCode, &s.MemberInvitesEnabled, &s.MemberInviteExpiryDays,
+		&s.WelcomeChannelID, &s.WelcomeMessage, &s.CreatedAt,
 	)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "update failed")
@@ -223,14 +244,16 @@ func (h *ServersHandler) Get(w http.ResponseWriter, r *http.Request) {
 	var s models.Server
 	err := h.db.QueryRow(r.Context(), `
 		SELECT s.id, s.name, s.description, s.rules, s.icon_url, s.owner_id, s.is_public, s.show_in_discovery,
-		       s.invite_code, s.member_invites_enabled, s.member_invite_expiry_days, s.created_at,
+		       s.invite_code, s.member_invites_enabled, s.member_invite_expiry_days,
+		       s.welcome_channel_id, s.welcome_message, s.created_at,
 		       COALESCE(sm.role, '')
 		FROM servers s
 		LEFT JOIN server_members sm ON sm.server_id = s.id AND sm.user_id = $2
 		WHERE s.id = $1
 	`, serverID, userID).Scan(
 		&s.ID, &s.Name, &s.Description, &s.Rules, &s.IconURL, &s.OwnerID, &s.IsPublic, &s.ShowInDiscovery,
-		&s.InviteCode, &s.MemberInvitesEnabled, &s.MemberInviteExpiryDays, &s.CreatedAt, &s.Role,
+		&s.InviteCode, &s.MemberInvitesEnabled, &s.MemberInviteExpiryDays,
+		&s.WelcomeChannelID, &s.WelcomeMessage, &s.CreatedAt, &s.Role,
 	)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "server not found")
@@ -270,6 +293,7 @@ func (h *ServersHandler) Join(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	go h.broadcastMemberJoin(serverID, userID)
+	go h.postWelcomeMessage(serverID, userID)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -323,6 +347,7 @@ func (h *ServersHandler) JoinByInvite(w http.ResponseWriter, r *http.Request) {
 
 	h.db.Exec(r.Context(), `INSERT INTO server_members (server_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, serverID, userID)
 	go h.broadcastMemberJoin(serverID, userID)
+	go h.postWelcomeMessage(serverID, userID)
 	writeJSON(w, http.StatusOK, map[string]string{"server_id": serverID})
 }
 
@@ -726,6 +751,7 @@ func (h *ServersHandler) ReviewJoinRequest(w http.ResponseWriter, r *http.Reques
 	if body.Action == "approve" {
 		h.db.Exec(r.Context(), `INSERT INTO server_members (server_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, serverID, requesterID)
 		go h.broadcastMemberJoin(serverID, requesterID)
+		go h.postWelcomeMessage(serverID, requesterID)
 	}
 
 	payload, _ := json.Marshal(map[string]string{"server_id": serverID, "action": body.Action})
@@ -877,6 +903,31 @@ func (h *ServersHandler) GetInvite(w http.ResponseWriter, r *http.Request) {
 func (h *ServersHandler) broadcastMemberJoin(serverID, userID string) {
 	payload, _ := json.Marshal(map[string]string{"server_id": serverID, "user_id": userID})
 	h.hub.Broadcast("server:"+serverID, ws.Event{Type: "member.join", Payload: payload})
+}
+
+func (h *ServersHandler) postWelcomeMessage(serverID, userID string) {
+	var channelID string
+	var tmpl, displayName, avatarURL string
+	err := h.db.QueryRow(context.Background(), `
+		SELECT s.welcome_channel_id, s.welcome_message, u.display_name, u.avatar_url
+		FROM servers s JOIN users u ON u.id = $2
+		WHERE s.id = $1 AND s.welcome_channel_id IS NOT NULL AND s.welcome_message != ''
+	`, serverID, userID).Scan(&channelID, &tmpl, &displayName, &avatarURL)
+	if err != nil {
+		return
+	}
+	content := strings.ReplaceAll(tmpl, "{user}", displayName)
+	var msg models.Message
+	msg.Author = &models.User{ID: userID, DisplayName: displayName, AvatarURL: avatarURL}
+	msg.Reactions = []models.Reaction{}
+	if err := h.db.QueryRow(context.Background(), `
+		INSERT INTO messages (channel_id, author_id, content) VALUES ($1, $2, $3)
+		RETURNING id, channel_id, content, created_at
+	`, channelID, userID, content).Scan(&msg.ID, &msg.ChannelID, &msg.Content, &msg.CreatedAt); err != nil {
+		return
+	}
+	payload, _ := json.Marshal(msg)
+	h.hub.Broadcast("channel:"+channelID, ws.Event{Type: "message.new", Payload: payload})
 }
 
 func (h *ServersHandler) broadcastMemberLeave(serverID, userID string) {
