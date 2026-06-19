@@ -2,11 +2,12 @@
 	import { onMount } from 'svelte';
 	import { api, type Message, type DirectMessage, type MessageReply, type Thread, type Reaction } from '$lib/api';
 	import { socket } from '$lib/socket';
-	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent, instanceConfig, serverMembers, mentionedChannels, presenceMap, notifPrefs, serverUnread } from '$lib/stores';
+	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent, instanceConfig, serverMembers, mentionedChannels, presenceMap, notifPrefs, serverUnread, homeMode } from '$lib/stores';
 	import { playMessageSound, playMentionSound, playDMSound } from '$lib/sounds';
 	import type { ServerMember } from '$lib/api';
 	import ServerList from '$lib/components/ServerList.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
+	import DMSidebar from '$lib/components/DMSidebar.svelte';
 	import MessageFeed from '$lib/components/MessageFeed.svelte';
 	import MemberList from '$lib/components/MemberList.svelte';
 	import ProfileModal from '$lib/components/ProfileModal.svelte';
@@ -291,11 +292,17 @@
 		serverUnread.update((m) => ({ ...m, [srv.id]: hasUnread }));
 	});
 
-	// Listen for mentions, DMs from background conversations, kicks/bans on the personal WS room
+	// Listen for mentions, DMs from background conversations, kicks/bans, and friend events
 	$effect(() => {
 		const uid = $currentUser?.id;
 		if (!uid) return;
 		const unsub = socket.on((event) => {
+			if (event.type === 'friend.accepted') {
+				Promise.all([api.listFriends(), api.listFriendRequestsSent()]).then(([fr, sent]) => {
+					friends.set(fr ?? []);
+					friendRequestsSent.set(sent ?? []);
+				});
+			}
 			if (event.type === 'mention.new') {
 				const chId = event.payload.channel_id;
 				if ($activeChannel?.id !== chId) {
@@ -484,7 +491,11 @@
 	<ServerList />
 
 	{#if showSidebar}
-		<ChannelSidebar />
+		{#if $homeMode}
+			<DMSidebar />
+		{:else}
+			<ChannelSidebar />
+		{/if}
 	{/if}
 
 	{#if showChat}
@@ -493,7 +504,7 @@
 				{#if isMobile}
 					<button class="back-btn" onclick={mobileBack}>
 						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>
-						{$activeDM ? 'Messages' : ($activeServer?.name ?? 'Channels')}
+						{$homeMode ? 'Messages' : ($activeServer?.name ?? 'Channels')}
 					</button>
 				{/if}
 				<div class="channel-info">

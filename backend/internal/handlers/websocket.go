@@ -17,14 +17,45 @@ type WSHandler struct {
 	auth           *auth.Service
 	db             *pgxpool.Pool
 	allowedOrigins map[string]bool
+	turnServer     string
+	turnUsername   string
+	turnCredential string
 }
 
-func NewWS(hub *ws.Hub, a *auth.Service, db *pgxpool.Pool, baseURL, frontendURL string) *WSHandler {
+func NewWS(hub *ws.Hub, a *auth.Service, db *pgxpool.Pool, baseURL, frontendURL, turnServer, turnUsername, turnCredential string) *WSHandler {
 	origins := map[string]bool{baseURL: true}
 	if frontendURL != "" && frontendURL != baseURL {
 		origins[frontendURL] = true
 	}
-	return &WSHandler{hub: hub, auth: a, db: db, allowedOrigins: origins}
+	return &WSHandler{
+		hub:            hub,
+		auth:           a,
+		db:             db,
+		allowedOrigins: origins,
+		turnServer:     turnServer,
+		turnUsername:   turnUsername,
+		turnCredential: turnCredential,
+	}
+}
+
+func (h *WSHandler) VoiceConfig(w http.ResponseWriter, r *http.Request) {
+	type iceServer struct {
+		URLs       []string `json:"urls"`
+		Username   string   `json:"username,omitempty"`
+		Credential string   `json:"credential,omitempty"`
+	}
+	servers := []iceServer{
+		{URLs: []string{"stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"}},
+	}
+	if h.turnServer != "" {
+		servers = append(servers, iceServer{
+			URLs:       []string{h.turnServer},
+			Username:   h.turnUsername,
+			Credential: h.turnCredential,
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"ice_servers": servers})
 }
 
 func (h *WSHandler) Handle(w http.ResponseWriter, r *http.Request) {
@@ -111,7 +142,10 @@ func (h *WSHandler) onEvent(c *ws.Client, event ws.Event) {
 		if !c.HasRoom("channel:" + body.ChannelID) {
 			return
 		}
-		existingIDs := h.hub.VoiceJoin(body.ChannelID, c)
+		// Look up server ID before joining so the hub can cache it for ungraceful-disconnect cleanup.
+		var serverID string
+		h.db.QueryRow(context.Background(), `SELECT server_id FROM channels WHERE id = $1`, body.ChannelID).Scan(&serverID)
+		existingIDs := h.hub.VoiceJoin(body.ChannelID, serverID, c)
 
 		// Fetch user info for all existing peers and send voice.state to joiner
 		go func() {
@@ -131,8 +165,6 @@ func (h *WSHandler) onEvent(c *ws.Client, event ws.Event) {
 			}
 			joiner.UserID = c.UserID()
 			h.db.QueryRow(context.Background(), `SELECT display_name, avatar_url FROM users WHERE id = $1`, c.UserID()).Scan(&joiner.DisplayName, &joiner.AvatarURL)
-			var serverID string
-			h.db.QueryRow(context.Background(), `SELECT server_id FROM channels WHERE id = $1`, body.ChannelID).Scan(&serverID)
 			joinedPayload, _ := json.Marshal(map[string]any{"channel_id": body.ChannelID, "user": joiner})
 			h.hub.BroadcastExcept("channel:"+body.ChannelID, c, ws.Event{Type: "voice.joined", Payload: joinedPayload})
 			if serverID != "" {

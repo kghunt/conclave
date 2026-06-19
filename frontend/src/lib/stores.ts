@@ -43,3 +43,4 @@ export const presenceMap = writable<Record<string, string>>({}); // userId → '
 export const pendingJoinRequests = writable<import('./api').JoinRequest[]>([]); // pending join requests for current space
 export const voiceParticipants = writable<Record<string, VoicePeer[]>>({}); // channelId → current voice participants
 export const serverUnread = writable<Record<string, boolean>>({}); // serverId → has unread
+export const homeMode = writable(false); // true when viewing DMs/Friends panel

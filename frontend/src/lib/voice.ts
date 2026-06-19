@@ -11,17 +11,27 @@ export interface VoiceState {
 	peers: VoicePeer[];
 	micGain: number;
 	speakingUsers: Set<string>;
+	echoCancellation: boolean;
+	noiseSuppression: boolean;
+	autoGainControl: boolean;
+	vadThreshold: number;
 }
 
-export const voiceState = writable<VoiceState>({
+const DEFAULT_STATE: VoiceState = {
 	channelId: null,
 	serverId: null,
 	muted: false,
 	connecting: false,
 	peers: [],
 	micGain: 1,
-	speakingUsers: new Set()
-});
+	speakingUsers: new Set(),
+	echoCancellation: true,
+	noiseSuppression: true,
+	autoGainControl: true,
+	vadThreshold: 0.015,
+};
+
+export const voiceState = writable<VoiceState>({ ...DEFAULT_STATE });
 
 // Per-peer output volume (userId → 0–2, default 1)
 export const peerVolumesStore = writable<Record<string, number>>({});
@@ -29,8 +39,8 @@ export const peerVolumesStore = writable<Record<string, number>>({});
 // ── Module-level WebRTC/WebAudio state ────────────────────────────────────────
 
 let channelId: string | null = null;
-let localStream: MediaStream | null = null;   // raw getUserMedia stream
-let processedStream: MediaStream | null = null; // gain-processed, fed to WebRTC
+let localStream: MediaStream | null = null;
+let processedStream: MediaStream | null = null;
 let audioCtx: AudioContext | null = null;
 let gainNode: GainNode | null = null;
 let localAnalyser: AnalyserNode | null = null;
@@ -43,14 +53,25 @@ let wsUnsubscribe: (() => void) | null = null;
 let vadInterval: ReturnType<typeof setInterval> | null = null;
 let prevSpeaking = new Set<string>();
 
-const ICE_SERVERS: RTCConfiguration = {
+const FALLBACK_ICE: RTCConfiguration = {
 	iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }]
 };
 
-const VAD_THRESHOLD = 0.015;
-const VAD_INTERVAL_MS = 80;
+let iceConfig: RTCConfiguration = FALLBACK_ICE;
 
-// ── Sound effects (generated via WebAudio — no files needed) ─────────────────
+async function fetchICEConfig(): Promise<RTCConfiguration> {
+	try {
+		const res = await fetch('/api/voice/config');
+		if (!res.ok) return FALLBACK_ICE;
+		const data = await res.json();
+		if (Array.isArray(data.ice_servers) && data.ice_servers.length > 0) {
+			return { iceServers: data.ice_servers };
+		}
+	} catch {}
+	return FALLBACK_ICE;
+}
+
+// ── Sound effects ─────────────────────────────────────────────────────────────
 
 function playTone(freq: number, duration: number, volume = 0.25, delay = 0) {
 	try {
@@ -70,27 +91,12 @@ function playTone(freq: number, duration: number, volume = 0.25, delay = 0) {
 	} catch {}
 }
 
-function playSelfJoinSound() {
-	// Two ascending notes
-	playTone(880, 0.18, 0.25, 0);
-	playTone(1100, 0.22, 0.2, 0.14);
-}
+function playSelfJoinSound() { playTone(880, 0.18, 0.25, 0); playTone(1100, 0.22, 0.2, 0.14); }
+function playPeerJoinSound() { playTone(1000, 0.14, 0.18); }
+function playPeerLeaveSound() { playTone(600, 0.14, 0.15); }
+function playSelfLeaveSound() { playTone(1100, 0.15, 0.2, 0); playTone(880, 0.2, 0.18, 0.13); }
 
-function playPeerJoinSound() {
-	playTone(1000, 0.14, 0.18);
-}
-
-function playPeerLeaveSound() {
-	playTone(600, 0.14, 0.15);
-}
-
-function playSelfLeaveSound() {
-	// Two descending notes — mirror of the join chime
-	playTone(1100, 0.15, 0.2, 0);
-	playTone(880, 0.2, 0.18, 0.13);
-}
-
-// ── VAD helpers ───────────────────────────────────────────────────────────────
+// ── VAD ───────────────────────────────────────────────────────────────────────
 
 function getRMS(analyser: AnalyserNode): number {
 	const buf = new Uint8Array(analyser.fftSize);
@@ -107,12 +113,13 @@ function startVAD() {
 	vadInterval = setInterval(() => {
 		const speaking = new Set<string>();
 		const me = get(currentUser);
+		const threshold = get(voiceState).vadThreshold;
 
 		if (localAnalyser && me) {
-			if (getRMS(localAnalyser) > VAD_THRESHOLD) speaking.add(me.id);
+			if (getRMS(localAnalyser) > threshold) speaking.add(me.id);
 		}
 		for (const [uid, analyser] of peerAnalysers) {
-			if (getRMS(analyser) > VAD_THRESHOLD) speaking.add(uid);
+			if (getRMS(analyser) > threshold) speaking.add(uid);
 		}
 
 		const changed =
@@ -121,18 +128,14 @@ function startVAD() {
 			prevSpeaking = speaking;
 			voiceState.update((s) => ({ ...s, speakingUsers: new Set(speaking) }));
 		}
-	}, VAD_INTERVAL_MS);
+	}, 80);
 }
 
 function stopVAD() {
-	if (vadInterval !== null) {
-		clearInterval(vadInterval);
-		vadInterval = null;
-	}
+	if (vadInterval !== null) { clearInterval(vadInterval); vadInterval = null; }
 	prevSpeaking = new Set();
 	voiceState.update((s) => ({ ...s, speakingUsers: new Set() }));
 }
-
 
 async function addPendingCandidates(peerId: string, pc: RTCPeerConnection) {
 	for (const c of pendingCandidates.get(peerId) ?? []) {
@@ -148,22 +151,30 @@ export async function joinVoice(chId: string, srvId: string): Promise<void> {
 
 	voiceState.update((s) => ({ ...s, connecting: true }));
 
+	// Fetch ICE config (includes TURN if configured server-side) before touching media
+	iceConfig = await fetchICEConfig();
+
+	const cur = get(voiceState);
 	try {
-		localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+		localStream = await navigator.mediaDevices.getUserMedia({
+			audio: {
+				echoCancellation: cur.echoCancellation,
+				noiseSuppression: cur.noiseSuppression,
+				autoGainControl: cur.autoGainControl,
+			},
+			video: false,
+		});
 	} catch {
 		voiceState.update((s) => ({ ...s, connecting: false }));
 		throw new Error('Microphone access denied');
 	}
 
-	// WebAudio pipeline: mic → GainNode → MediaStreamDestination (for WebRTC)
-	//                              ↓
-	//                        AnalyserNode (for local VAD)
 	audioCtx = new AudioContext();
 	await audioCtx.resume();
 
 	const source = audioCtx.createMediaStreamSource(localStream);
 	gainNode = audioCtx.createGain();
-	gainNode.gain.value = get(voiceState).micGain;
+	gainNode.gain.value = cur.micGain;
 
 	localAnalyser = audioCtx.createAnalyser();
 	localAnalyser.fftSize = 256;
@@ -176,15 +187,14 @@ export async function joinVoice(chId: string, srvId: string): Promise<void> {
 	processedStream = dest.stream;
 
 	channelId = chId;
-	voiceState.set({
+	voiceState.update((s) => ({
+		...s,
 		channelId: chId,
 		serverId: srvId,
 		muted: false,
 		connecting: true,
 		peers: [],
-		micGain: gainNode.gain.value,
-		speakingUsers: new Set()
-	});
+	}));
 
 	startVAD();
 	socket.subscribe('channel:' + chId);
@@ -290,15 +300,14 @@ export function leaveVoice() {
 	peerVolumeMap.clear();
 	peerVolumesStore.set({});
 	channelId = null;
-	voiceState.set({
-		channelId: null,
-		serverId: null,
-		muted: false,
-		connecting: false,
-		peers: [],
-		micGain: 1,
-		speakingUsers: new Set()
-	});
+	voiceState.update((s) => ({
+		...DEFAULT_STATE,
+		echoCancellation: s.echoCancellation,
+		noiseSuppression: s.noiseSuppression,
+		autoGainControl: s.autoGainControl,
+		vadThreshold: s.vadThreshold,
+		micGain: s.micGain,
+	}));
 }
 
 export function toggleMute() {
@@ -321,13 +330,43 @@ export function setPeerVolume(userId: string, value: number) {
 	if (el) el.volume = value;
 }
 
-// ── Real peer map (userId → RTCPeerConnection) ────────────────────────────────
-// (peerConnections was originally keyed by pc → pc which was a bug; use a proper map)
+export function setVADThreshold(value: number) {
+	voiceState.update((s) => ({ ...s, vadThreshold: value }));
+}
+
+async function applyAudioConstraints(ec: boolean, ns: boolean, agc: boolean) {
+	if (!localStream) return;
+	const track = localStream.getAudioTracks()[0];
+	if (!track) return;
+	try {
+		await track.applyConstraints({ echoCancellation: ec, noiseSuppression: ns, autoGainControl: agc });
+	} catch { /* browser may not support all constraints */ }
+}
+
+export function setEchoCancellation(value: boolean) {
+	voiceState.update((s) => ({ ...s, echoCancellation: value }));
+	const s = get(voiceState);
+	applyAudioConstraints(value, s.noiseSuppression, s.autoGainControl);
+}
+
+export function setNoiseSuppression(value: boolean) {
+	voiceState.update((s) => ({ ...s, noiseSuppression: value }));
+	const s = get(voiceState);
+	applyAudioConstraints(s.echoCancellation, value, s.autoGainControl);
+}
+
+export function setAutoGainControl(value: boolean) {
+	voiceState.update((s) => ({ ...s, autoGainControl: value }));
+	const s = get(voiceState);
+	applyAudioConstraints(s.echoCancellation, s.noiseSuppression, value);
+}
+
+// ── Peer connections ──────────────────────────────────────────────────────────
 
 const realPeerMap = new Map<string, RTCPeerConnection>();
 
 function createRealPC(peerId: string): RTCPeerConnection {
-	const pc = new RTCPeerConnection(ICE_SERVERS);
+	const pc = new RTCPeerConnection(iceConfig);
 
 	pc.onicecandidate = (e) => {
 		if (e.candidate && channelId) {
@@ -366,6 +405,18 @@ function createRealPC(peerId: string): RTCPeerConnection {
 	pc.onconnectionstatechange = () => {
 		if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
 			cleanupRealPeer(peerId);
+			// Remove the stuck peer from the participant display
+			const ch = channelId;
+			if (ch) {
+				voiceParticipants.update((vp) => ({
+					...vp,
+					[ch]: (vp[ch] ?? []).filter((p) => p.user_id !== peerId)
+				}));
+				voiceState.update((s) => ({
+					...s,
+					peers: s.peers.filter((p) => p.user_id !== peerId)
+				}));
+			}
 		}
 	};
 

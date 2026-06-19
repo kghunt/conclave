@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { api, type Server } from '$lib/api';
-	import { servers, activeServer, channels, activeChannel, instanceConfig, currentUser, serverUnread } from '$lib/stores';
+	import { servers, activeServer, channels, activeChannel, activeDM, instanceConfig, currentUser, serverUnread, homeMode } from '$lib/stores';
 	import ServerContextMenu from './ServerContextMenu.svelte';
 	import SpaceBrowser from './SpaceBrowser.svelte';
 
@@ -70,13 +70,25 @@
 	async function selectServer(id: string) {
 		const s = $servers.find((s) => s.id === id);
 		if (!s) return;
+		homeMode.set(false);
+		activeDM.set(null);
 		activeServer.set(s);
 		activeChannel.set(null);
 		channels.set([]);
 	}
+
+	function goHome() {
+		homeMode.set(true);
+		activeServer.set(null);
+		activeChannel.set(null);
+	}
 </script>
 
 <nav class="server-list">
+	<button class="server-icon home-btn" class:active={$homeMode} title="Messages & Friends" onclick={goHome}>
+		<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+	</button>
+	<div class="divider"></div>
 	{#each $servers as s}
 		<div class="server-wrap">
 			<button
@@ -97,8 +109,6 @@
 			{/if}
 		</div>
 	{/each}
-
-	<div class="divider"></div>
 
 	{#if canCreateSpace}
 		<button class="server-icon add" title="Create or join a space" onclick={() => { showCreate = !showCreate; showBrowse = false; }}>
@@ -197,6 +207,8 @@
 	}
 	.server-icon.add { background: #1a2d1a; color: #44c97d; font-size: 1.5rem; }
 	.server-icon.browse { background: var(--bg-panel); color: var(--accent); font-size: 1.4rem; }
+	.home-btn { background: var(--bg-panel); color: var(--text-muted); }
+	.home-btn:hover, .home-btn.active { color: var(--accent); border-color: var(--accent); }
 	.divider {
 		width: 32px;
 		height: 2px;

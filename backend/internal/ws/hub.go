@@ -4,8 +4,15 @@ import (
 	"encoding/json"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
+)
+
+const (
+	writeWait  = 10 * time.Second
+	pongWait   = 60 * time.Second
+	pingPeriod = (pongWait * 9) / 10
 )
 
 type Event struct {
@@ -18,7 +25,7 @@ type Client struct {
 	conn   *websocket.Conn
 	send   chan []byte
 	userID string
-	rooms  map[string]bool // channel IDs or "dm:conversationID"
+	rooms  map[string]bool
 	mu     sync.Mutex
 }
 
@@ -29,18 +36,19 @@ type PresenceChange struct {
 
 type Hub struct {
 	clients    map[*Client]bool
-	rooms      map[string]map[*Client]bool // room -> clients
+	rooms      map[string]map[*Client]bool
 	register   chan *Client
 	unregister chan *Client
 	broadcast  chan roomMessage
 	mu         sync.RWMutex
 
-	userConns    map[string]int    // userId → active connection count
-	userPresence map[string]string // userId → "online"|"away" (absent = offline)
+	userConns       map[string]int
+	userPresence    map[string]string
 	PresenceChanges chan PresenceChange
 
-	voiceRooms map[string]map[string]*Client // channelID → userID → *Client
-	voiceMu    sync.RWMutex
+	voiceRooms     map[string]map[string]*Client // channelID → userID → *Client
+	voiceServerMap map[string]string             // channelID → serverID
+	voiceMu        sync.RWMutex
 }
 
 type roomMessage struct {
@@ -54,11 +62,12 @@ func NewHub() *Hub {
 		rooms:           make(map[string]map[*Client]bool),
 		register:        make(chan *Client, 64),
 		unregister:      make(chan *Client, 64),
-		broadcast:       make(chan roomMessage, 256),
+		broadcast:       make(chan roomMessage, 512),
 		userConns:       make(map[string]int),
 		userPresence:    make(map[string]string),
 		PresenceChanges: make(chan PresenceChange, 256),
 		voiceRooms:      make(map[string]map[string]*Client),
+		voiceServerMap:  make(map[string]string),
 	}
 }
 
@@ -75,7 +84,10 @@ func (h *Hub) Run() {
 			}
 			h.mu.Unlock()
 			if prev == 0 {
-				select { case h.PresenceChanges <- PresenceChange{c.userID, "online"}: default: }
+				select {
+				case h.PresenceChanges <- PresenceChange{c.userID, "online"}:
+				default:
+				}
 			}
 
 		case c := <-h.unregister:
@@ -95,25 +107,41 @@ func (h *Hub) Run() {
 			}
 			h.mu.Unlock()
 			if emitOffline {
-				select { case h.PresenceChanges <- PresenceChange{c.userID, "offline"}: default: }
+				select {
+				case h.PresenceChanges <- PresenceChange{c.userID, "offline"}:
+				default:
+				}
 			}
-			// Clean up voice rooms on disconnect
+
+			// Clean up voice rooms on disconnect and broadcast voice.left to both channel and server rooms.
 			h.voiceMu.Lock()
-			var leftChannels []string
+			type leftRoom struct{ channelID, serverID string }
+			var leftRooms []leftRoom
 			for channelID, peers := range h.voiceRooms {
 				if _, ok := peers[c.userID]; ok {
 					delete(peers, c.userID)
+					serverID := h.voiceServerMap[channelID]
 					if len(peers) == 0 {
 						delete(h.voiceRooms, channelID)
+						delete(h.voiceServerMap, channelID)
 					}
-					leftChannels = append(leftChannels, channelID)
+					leftRooms = append(leftRooms, leftRoom{channelID, serverID})
 				}
 			}
 			h.voiceMu.Unlock()
-			for _, channelID := range leftChannels {
-				inner, _ := json.Marshal(map[string]string{"channel_id": channelID, "user_id": c.userID})
-				data, _ := json.Marshal(Event{Type: "voice.left", Payload: inner})
-				select { case h.broadcast <- roomMessage{room: "channel:" + channelID, payload: data}: default: }
+
+			if len(leftRooms) > 0 {
+				userID := c.userID
+				go func() {
+					for _, lr := range leftRooms {
+						inner, _ := json.Marshal(map[string]string{"channel_id": lr.channelID, "user_id": userID})
+						evt, _ := json.Marshal(Event{Type: "voice.left", Payload: inner})
+						h.broadcast <- roomMessage{room: "channel:" + lr.channelID, payload: evt}
+						if lr.serverID != "" {
+							h.broadcast <- roomMessage{room: "server:" + lr.serverID, payload: evt}
+						}
+					}
+				}()
 			}
 
 		case msg := <-h.broadcast:
@@ -174,10 +202,27 @@ func (h *Hub) NewClient(conn *websocket.Conn, userID string) *Client {
 }
 
 func (c *Client) WritePump() {
-	defer c.conn.Close()
-	for msg := range c.send {
-		if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-			return
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		c.conn.Close()
+	}()
+	for {
+		select {
+		case msg, ok := <-c.send:
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if !ok {
+				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				return
+			}
+		case <-ticker.C:
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		}
 	}
 }
@@ -188,6 +233,11 @@ func (c *Client) ReadPump(onEvent func(c *Client, event Event)) {
 		c.conn.Close()
 	}()
 	c.conn.SetReadLimit(65536)
+	c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetPongHandler(func(string) error {
+		c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
 	for {
 		_, msg, err := c.conn.ReadMessage()
 		if err != nil {
@@ -235,11 +285,15 @@ func (c *Client) HasRoom(room string) bool {
 }
 
 // VoiceJoin adds a client to a voice room and returns the existing peers' userIDs.
-func (h *Hub) VoiceJoin(channelID string, c *Client) []string {
+// serverID is cached so ungraceful disconnects can broadcast to the server room too.
+func (h *Hub) VoiceJoin(channelID, serverID string, c *Client) []string {
 	h.voiceMu.Lock()
 	defer h.voiceMu.Unlock()
 	if h.voiceRooms[channelID] == nil {
 		h.voiceRooms[channelID] = make(map[string]*Client)
+	}
+	if serverID != "" {
+		h.voiceServerMap[channelID] = serverID
 	}
 	existing := make([]string, 0, len(h.voiceRooms[channelID]))
 	for uid := range h.voiceRooms[channelID] {
@@ -257,6 +311,7 @@ func (h *Hub) VoiceLeave(channelID string, c *Client) {
 		delete(peers, c.userID)
 		if len(peers) == 0 {
 			delete(h.voiceRooms, channelID)
+			delete(h.voiceServerMap, channelID)
 		}
 	}
 }
