@@ -5,6 +5,7 @@
 	import type { ServerMember } from '$lib/api';
 	import { socket } from '$lib/socket';
 	import EmojiPicker from './EmojiPicker.svelte';
+	import LightboxImage from './LightboxImage.svelte';
 
 	const isAdmin = $derived(
 		$activeServer?.role === 'owner' || $activeServer?.role === 'admin'
@@ -28,6 +29,7 @@
 	let editingId = $state<string | null>(null);
 	let editContent = $state('');
 	let replyingTo = $state<ThreadMessage | null>(null);
+	let lightboxSrc = $state<string | null>(null);
 
 	// @mention autocomplete
 	let mentionQuery = $state('');
@@ -290,7 +292,7 @@
 							></textarea>
 							<div class="edit-hint">Enter to save · Esc to cancel</div>
 						{:else if isImageUrl(msg.content)}
-							<img src={msg.content} alt="uploaded" class="tv-media" loading="lazy" />
+							<img src={msg.content} alt="uploaded" class="tv-media tv-media-img" loading="lazy" onclick={() => lightboxSrc = msg.content} />
 						{:else if isVideoUrl(msg.content)}
 							<!-- svelte-ignore a11y-media-has-caption -->
 							<video src={msg.content} class="tv-media" controls preload="metadata"></video>
@@ -386,7 +388,9 @@
 			</button>
 		</div>
 	</div>
-</div>
+{#if lightboxSrc}
+	<LightboxImage src={lightboxSrc} onclose={() => lightboxSrc = null} />
+{/if}
 
 <style>
 	.thread-view {
@@ -543,6 +547,8 @@
 		display: block;
 		margin-top: 0.25rem;
 	}
+	.tv-media-img { cursor: pointer; }
+	.tv-media-img:hover { opacity: 0.9; }
 	.tv-actions {
 		position: absolute;
 		right: 0.5rem;
