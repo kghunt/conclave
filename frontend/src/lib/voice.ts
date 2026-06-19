@@ -57,6 +57,29 @@ const FALLBACK_ICE: RTCConfiguration = {
 	iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }]
 };
 
+// Munge SDP to enable Opus in-band FEC and DTX, and cap bitrate to 32 kbps.
+// FEC encodes redundant data so a single lost packet can be reconstructed from the next one.
+// DTX stops transmitting during silence, reducing congestion.
+function mungeOpusSDP(sdp: string): string {
+	const opusMatch = sdp.match(/a=rtpmap:(\d+) opus\/48000\/2/);
+	if (!opusMatch) return sdp;
+	const pt = opusMatch[1];
+	const fmtpRe = new RegExp(`(a=fmtp:${pt} )(.+)`);
+	const fmtpMatch = sdp.match(fmtpRe);
+	const BASE = 'useinbandfec=1;usedtx=1;maxaveragebitrate=32000';
+	if (fmtpMatch) {
+		let params = fmtpMatch[2];
+		if (!params.includes('useinbandfec')) params += ';useinbandfec=1';
+		if (!params.includes('usedtx')) params += ';usedtx=1';
+		if (!params.includes('maxaveragebitrate')) params += ';maxaveragebitrate=32000';
+		return sdp.replace(fmtpRe, `$1${params}`);
+	}
+	return sdp.replace(
+		`a=rtpmap:${pt} opus/48000/2`,
+		`a=rtpmap:${pt} opus/48000/2\r\na=fmtp:${pt} ${BASE}`
+	);
+}
+
 let iceConfig: RTCConfiguration = FALLBACK_ICE;
 
 async function fetchICEConfig(): Promise<RTCConfiguration> {
@@ -169,7 +192,8 @@ export async function joinVoice(chId: string, srvId: string): Promise<void> {
 		throw new Error('Microphone access denied');
 	}
 
-	audioCtx = new AudioContext();
+	// 48 kHz matches Opus natively; 'interactive' minimises processing latency
+	audioCtx = new AudioContext({ latencyHint: 'interactive', sampleRate: 48000 });
 	await audioCtx.resume();
 
 	const source = audioCtx.createMediaStreamSource(localStream);
@@ -234,8 +258,9 @@ async function handleVoiceState(peers: VoicePeer[]) {
 		const pc = createRealPC(peer.user_id);
 		try {
 			const offer = await pc.createOffer();
-			await pc.setLocalDescription(offer);
-			socket.send('voice.signal', { channel_id: channelId, to: peer.user_id, signal: offer });
+			const mungedOffer = { ...offer, sdp: mungeOpusSDP(offer.sdp ?? '') };
+			await pc.setLocalDescription(mungedOffer);
+			socket.send('voice.signal', { channel_id: channelId, to: peer.user_id, signal: mungedOffer });
 		} catch {}
 	}
 }
@@ -255,8 +280,9 @@ async function handleSignal(fromId: string, signal: IncomingSignal) {
 			await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: signal.sdp }));
 			await addPendingCandidates(fromId, pc);
 			const answer = await pc.createAnswer();
-			await pc.setLocalDescription(answer);
-			socket.send('voice.signal', { channel_id: channelId, to: fromId, signal: answer });
+			const mungedAnswer = { ...answer, sdp: mungeOpusSDP(answer.sdp ?? '') };
+			await pc.setLocalDescription(mungedAnswer);
+			socket.send('voice.signal', { channel_id: channelId, to: fromId, signal: mungedAnswer });
 		} catch {}
 	} else if (signal.type === 'answer') {
 		const pc = realPeerMap.get(fromId);
@@ -403,6 +429,17 @@ function createRealPC(peerId: string): RTCPeerConnection {
 	};
 
 	pc.onconnectionstatechange = () => {
+		if (pc.connectionState === 'connected') {
+			// Belt-and-suspenders bitrate cap via setParameters (works in browsers that don't honour SDP fmtp)
+			for (const sender of pc.getSenders()) {
+				if (sender.track?.kind !== 'audio') continue;
+				const params = sender.getParameters();
+				if (params.encodings?.length) {
+					params.encodings[0].maxBitrate = 32_000;
+				}
+				sender.setParameters(params).catch(() => {});
+			}
+		}
 		if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
 			cleanupRealPeer(peerId);
 			// Remove the stuck peer from the participant display
