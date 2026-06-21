@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
 	import { currentUser, notifPrefs } from '$lib/stores';
 	import { playMessageSound, playMentionSound, playDMSound } from '$lib/sounds';
@@ -12,6 +13,14 @@
 	let saving = $state(false);
 	let uploading = $state(false);
 	let fileInput: HTMLInputElement;
+
+	// Desktop presence companion
+	let presenceConnected = $state(false);
+	let presenceLinking = $state(false);
+
+	onMount(async () => {
+		try { presenceConnected = (await api.getPresenceTokenStatus()).connected; } catch { /* ignore */ }
+	});
 
 	// Sync form fields if store changes (e.g. after avatar upload re-fetch)
 	$effect(() => {
@@ -29,6 +38,23 @@
 		} finally {
 			saving = false;
 		}
+	}
+
+	async function connectPresenceApp() {
+		presenceLinking = true;
+		try {
+			const { token } = await api.generatePresenceToken();
+			const url = `conclave://connect?instance=${encodeURIComponent(location.origin)}&token=${encodeURIComponent(token)}`;
+			location.href = url;
+			presenceConnected = true;
+		} catch { /* ignore */ } finally {
+			presenceLinking = false;
+		}
+	}
+
+	async function disconnectPresenceApp() {
+		await api.revokePresenceToken();
+		presenceConnected = false;
 	}
 
 	async function uploadAvatar(e: Event) {
@@ -138,6 +164,26 @@
 					<span class="knob"></span>
 				</button>
 			</div>
+		</div>
+
+		<div class="presence-section">
+			<div class="section-title">Desktop Presence App</div>
+			<p class="presence-desc">
+				Runs in your system tray, detects what game you're playing, and shows your status to other members.
+			</p>
+			{#if presenceConnected}
+				<div class="presence-row">
+					<span class="presence-status connected">● Connected</span>
+					<button class="presence-btn danger" onclick={disconnectPresenceApp}>Disconnect</button>
+				</div>
+			{:else}
+				<div class="presence-row">
+					<a class="presence-btn" href="https://github.com/karl/conclave/releases" target="_blank" rel="noopener">Download app ↗</a>
+					<button class="presence-btn primary" onclick={connectPresenceApp} disabled={presenceLinking}>
+						{presenceLinking ? 'Opening…' : 'Connect installed app'}
+					</button>
+				</div>
+			{/if}
 		</div>
 
 		<div class="actions">
@@ -317,4 +363,54 @@
 		display: block;
 	}
 	.toggle.on .knob { transform: translateX(16px); }
+	.presence-section {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		border-top: 1px solid var(--border);
+		padding-top: 0.75rem;
+	}
+	.section-title {
+		font-size: 0.75rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--text-muted);
+	}
+	.presence-desc {
+		font-size: 0.82rem;
+		color: var(--text-muted);
+		line-height: 1.45;
+	}
+	.presence-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+	.presence-status {
+		font-size: 0.82rem;
+		color: var(--text-muted);
+		flex: 1;
+	}
+	.presence-status.connected { color: #44c97d; }
+	.presence-btn {
+		padding: 0.4rem 0.75rem;
+		border-radius: 5px;
+		font-size: 0.82rem;
+		font-weight: 500;
+		cursor: pointer;
+		text-decoration: none;
+		border: 1px solid var(--border);
+		background: rgba(255,255,255,0.06);
+		color: var(--text);
+		font-family: inherit;
+		white-space: nowrap;
+	}
+	.presence-btn:hover:not(:disabled) { background: rgba(255,255,255,0.1); }
+	.presence-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+	.presence-btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+	.presence-btn.primary:hover:not(:disabled) { opacity: 0.9; }
+	.presence-btn.danger { border-color: #e04545; color: #e04545; background: rgba(224,69,69,0.08); }
+	.presence-btn.danger:hover { background: rgba(224,69,69,0.15); }
 </style>
