@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { api, type Server } from '$lib/api';
-	import { servers, activeServer, channels, activeChannel, activeDM, instanceConfig, currentUser, serverUnread, homeMode } from '$lib/stores';
+	import { servers, activeServer, channels, activeChannel, activeDM, instanceConfig, currentUser, serverUnread, homeMode, friendRequests } from '$lib/stores';
 	import ServerContextMenu from './ServerContextMenu.svelte';
 	import SpaceBrowser from './SpaceBrowser.svelte';
 
@@ -85,8 +85,11 @@
 </script>
 
 <nav class="server-list">
-	<button class="server-icon home-btn" class:active={$homeMode} title="Messages & Friends" onclick={goHome}>
+	<button class="server-icon home-btn" class:active={$homeMode} title="Messages & Friends" onclick={goHome} style="position:relative">
 		<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+		{#if $friendRequests.length > 0}
+			<span class="home-badge">{$friendRequests.length}</span>
+		{/if}
 	</button>
 	<div class="divider"></div>
 	{#each $servers as s}
@@ -209,6 +212,24 @@
 	.server-icon.browse { background: var(--bg-panel); color: var(--accent); font-size: 1.4rem; }
 	.home-btn { background: var(--bg-panel); color: var(--text-muted); }
 	.home-btn:hover, .home-btn.active { color: var(--accent); border-color: var(--accent); }
+	.home-badge {
+		position: absolute;
+		top: -4px;
+		right: -4px;
+		min-width: 16px;
+		height: 16px;
+		padding: 0 3px;
+		border-radius: 8px;
+		background: #e04545;
+		color: white;
+		font-size: 0.65rem;
+		font-weight: 700;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border: 2px solid #0e0e10;
+		box-sizing: border-box;
+	}
 	.divider {
 		width: 32px;
 		height: 2px;

@@ -11,6 +11,7 @@ export type WSEvent =
 	| { type: 'dm.reaction.toggle'; payload: { message_id: string; conversation_id: string; emoji: string; user_id: string; action: 'add' | 'remove' } }
 	| { type: 'member.join'; payload: { server_id: string; user_id: string } }
 	| { type: 'member.leave'; payload: { server_id: string; user_id: string } }
+	| { type: 'friend.request'; payload: import('./api').User }
 	| { type: 'friend.accepted'; payload: { id: string; display_name: string; avatar_url: string } }
 	| { type: 'mention.new'; payload: import('./api').Message }
 	| { type: 'typing'; payload: { user_id: string; display_name: string; room: string } }
