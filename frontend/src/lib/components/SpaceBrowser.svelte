@@ -9,6 +9,7 @@
 	let results = $state<ServerDiscovery[]>([]);
 	let loading = $state(false);
 	let busy = $state<Record<string, boolean>>({});
+	let requestSent = $state<string | null>(null); // space id that just got a request sent
 	let debounceTimer: ReturnType<typeof setTimeout>;
 
 	// Rules acceptance modal
@@ -77,6 +78,8 @@
 		try {
 			await api.requestJoinServer(space.id);
 			results = results.map((s) => s.id === space.id ? { ...s, has_pending_request: true } : s);
+			requestSent = space.id;
+			setTimeout(() => { if (requestSent === space.id) requestSent = null; }, 4000);
 		} catch {
 			// ignore
 		} finally {
@@ -148,6 +151,13 @@
 				autofocus
 			/>
 		</div>
+
+		{#if requestSent}
+			{@const sentSpace = results.find(s => s.id === requestSent)}
+			<div class="request-toast">
+				✓ Request sent to <strong>{sentSpace?.name ?? 'space'}</strong> — admins will review it shortly.
+			</div>
+		{/if}
 
 		<div class="results">
 			{#if loading}
@@ -337,6 +347,16 @@
 	}
 	.join-btn:disabled { cursor: not-allowed; opacity: 0.6; }
 	.join-btn.joined:disabled, .join-btn.requested:disabled { opacity: 1; }
+	.request-toast {
+		margin: 0.5rem 1rem 0;
+		padding: 0.6rem 0.9rem;
+		background: color-mix(in srgb, #3ba55c 15%, transparent);
+		border: 1px solid #3ba55c;
+		border-radius: 6px;
+		color: #3ba55c;
+		font-size: 0.85rem;
+	}
+	.request-toast strong { font-weight: 600; }
 	.private-badge {
 		font-size: 0.7rem;
 		color: var(--text-muted);
