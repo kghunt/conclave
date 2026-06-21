@@ -54,12 +54,22 @@
 			friendRequestsSent.set(sent ?? []);
 			instanceConfig.set(cfg);
 
-			// Restore last active server
-			const lastServerId = localStorage.getItem('lastServerId');
-			if (lastServerId) {
-				const match = (s ?? []).find((sv) => sv.id === lastServerId);
-				if (match) activeServer.set(match);
-				else if ((s ?? []).length > 0) activeServer.set(s[0]);
+			// Restore last view: home (DMs) or server+channel
+			const lastMode = localStorage.getItem('lastMode');
+			if (lastMode === 'home') {
+				homeMode.set(true);
+				const lastDMId = localStorage.getItem('lastDMId');
+				if (lastDMId) {
+					const dm = (convs ?? []).find((c) => c.id === lastDMId);
+					if (dm) activeDM.set(dm);
+				}
+			} else {
+				const lastServerId = localStorage.getItem('lastServerId');
+				if (lastServerId) {
+					const match = (s ?? []).find((sv) => sv.id === lastServerId);
+					if (match) activeServer.set(match);
+					else if ((s ?? []).length > 0) activeServer.set(s[0]);
+				}
 			}
 		})();
 
@@ -69,12 +79,17 @@
 		};
 	});
 
-	// Push a history entry when the user enters a channel/DM on mobile so the
-	// browser back button (and Android PWA back gesture) pops to the channel list
+	// Keep exactly one "inChat" history entry on mobile so the back button/gesture
+	// returns to the channel list. Push only when entering chat from the list;
+	// replace when switching between channels/DMs so the stack doesn't grow.
 	$effect(() => {
 		if (!isMobile) return;
 		if ($activeChannel || $activeDM) {
-			history.pushState({ inChat: true }, '');
+			if (history.state?.inChat) {
+				history.replaceState({ inChat: true }, '');
+			} else {
+				history.pushState({ inChat: true }, '');
+			}
 		}
 	});
 
@@ -84,6 +99,14 @@
 		activeDM.set(null);
 	}
 
+	// Persist navigation state so refresh restores the same view
+	$effect(() => { localStorage.setItem('lastMode', $homeMode ? 'home' : 'server'); });
+	$effect(() => { if ($activeDM) localStorage.setItem('lastDMId', $activeDM.id); });
+	$effect(() => {
+		if ($activeChannel && $activeServer)
+			localStorage.setItem('lastChannelId:' + $activeServer.id, $activeChannel.id);
+	});
+
 	// Load channels + members + presence when active server changes
 	$effect(() => {
 		const srv = $activeServer;
@@ -92,8 +115,12 @@
 		localStorage.setItem('lastServerId', id);
 		api.listChannels(id).then((ch) => {
 			channels.set(ch ?? []);
-			// On mobile, show the channel list so the user can choose; on desktop auto-select first
-			if (ch?.length > 0 && !isMobile) activeChannel.set(ch[0]);
+			// On mobile, show the channel list so the user can choose; on desktop restore last or use first
+			if (ch?.length > 0 && !isMobile) {
+				const lastChannelId = localStorage.getItem('lastChannelId:' + id);
+				const lastCh = lastChannelId ? ch.find((c) => c.id === lastChannelId) : null;
+				activeChannel.set(lastCh ?? ch[0]);
+			}
 		});
 		api.getMembers(id).then((ms) => serverMembers.set(ms ?? []));
 		api.getPresence(id).then((p) => presenceMap.update(m => ({ ...m, ...p })));
