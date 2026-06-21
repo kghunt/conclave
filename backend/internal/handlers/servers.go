@@ -649,9 +649,11 @@ func (h *ServersHandler) RequestJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Notify all admins/owners in the server
+	// Notify all admins/owners in the server (use Background context — r.Context() is
+	// cancelled when the handler returns, which races with this goroutine).
 	go func() {
-		rows, err := h.db.Query(r.Context(), `
+		ctx := context.Background()
+		rows, err := h.db.Query(ctx, `
 			SELECT sm.user_id FROM server_members sm
 			WHERE sm.server_id = $1 AND sm.role IN ('owner', 'admin')
 		`, serverID)
@@ -660,7 +662,7 @@ func (h *ServersHandler) RequestJoin(w http.ResponseWriter, r *http.Request) {
 		}
 		defer rows.Close()
 		var reqUser models.User
-		h.db.QueryRow(r.Context(), `SELECT id, display_name, avatar_url FROM users WHERE id = $1`, userID).Scan(&reqUser.ID, &reqUser.DisplayName, &reqUser.AvatarURL)
+		h.db.QueryRow(ctx, `SELECT id, display_name, avatar_url FROM users WHERE id = $1`, userID).Scan(&reqUser.ID, &reqUser.DisplayName, &reqUser.AvatarURL)
 		payload, _ := json.Marshal(map[string]any{"request_id": reqID, "server_id": serverID, "user": reqUser})
 		for rows.Next() {
 			var adminID string
