@@ -193,6 +193,9 @@ func main() {
 		r.Post("/api/push/subscribe", pushH.Subscribe)
 		r.Delete("/api/push/subscribe", pushH.Unsubscribe)
 
+		// user-accessible registration invite (rate-limited, 1-use/1-day)
+		r.Post("/api/registration-invite", adminH.GenerateUserInvite)
+
 		// instance admin
 		r.Get("/api/admin/settings", adminH.GetSettings)
 		r.Patch("/api/admin/settings", adminH.UpdateSettings)

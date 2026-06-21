@@ -177,6 +177,8 @@ export const api = {
 		req<User>('POST', '/auth/register', data),
 	localLogin: (data: { username: string; password: string }) =>
 		req<User>('POST', '/auth/local-login', data),
+	generateRegistrationInvite: () =>
+		req<RegistrationInvite>('POST', '/registration-invite'),
 
 	// instance admin
 	getAdminSettings: () => req<AdminSettings>('GET', '/admin/settings'),

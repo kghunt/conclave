@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { api, type User } from '$lib/api';
-	import { activeChannel, activeDM, dmConversations, currentUser, friends, friendRequests, friendRequestsSent } from '$lib/stores';
+	import { api, type User, type RegistrationInvite } from '$lib/api';
+	import { activeChannel, activeDM, dmConversations, currentUser, friends, friendRequests, friendRequestsSent, instanceConfig } from '$lib/stores';
 	import { callFriend } from '$lib/voice';
 	import Avatar from './Avatar.svelte';
 	import UserBar from './UserBar.svelte';
@@ -70,6 +70,36 @@
 		});
 		activeChannel.set(null);
 		activeDM.set(conv);
+	}
+
+	// Registration invite
+	let regInvite = $state<RegistrationInvite | null>(null);
+	let regInviteError = $state('');
+	let generatingInvite = $state(false);
+	let copiedInvite = $state(false);
+
+	const canInvite = $derived(
+		$instanceConfig.local_auth_enabled && $instanceConfig.registration_mode !== 'closed'
+	);
+
+	async function generateInvite() {
+		if (generatingInvite) return;
+		generatingInvite = true;
+		regInviteError = '';
+		try {
+			regInvite = await api.generateRegistrationInvite();
+		} catch (e: any) {
+			regInviteError = e?.message ?? 'Failed to generate invite';
+		} finally {
+			generatingInvite = false;
+		}
+	}
+
+	async function copyInviteCode() {
+		if (!regInvite) return;
+		await navigator.clipboard.writeText(regInvite.code);
+		copiedInvite = true;
+		setTimeout(() => (copiedInvite = false), 2000);
 	}
 
 	const sortedFriends = $derived((() => {
@@ -183,6 +213,29 @@
 
 	{#if $friends.length === 0 && $friendRequests.length === 0}
 		<p class="empty-hint">Add friends to start chatting.</p>
+	{/if}
+
+	{#if canInvite}
+		<div class="invite-section">
+			<div class="section-label" style="padding-top:0.75rem">
+				<span>Invite to Conclave</span>
+			</div>
+			{#if regInviteError}
+				<p class="invite-error">{regInviteError}</p>
+			{/if}
+			{#if regInvite}
+				<div class="invite-code-row">
+					<code class="invite-code">{regInvite.code}</code>
+					<button class="copy-invite-btn" onclick={copyInviteCode}>{copiedInvite ? '✓' : 'Copy'}</button>
+				</div>
+				<p class="invite-meta">1 use · expires in 24h</p>
+			{:else}
+				<button class="gen-invite-btn" onclick={generateInvite} disabled={generatingInvite}>
+					{generatingInvite ? 'Generating…' : 'Generate invite code'}
+				</button>
+				<p class="invite-hint">Single-use, valid for 24 hours. One per day.</p>
+			{/if}
+		</div>
 	{/if}
 
 </div><!-- end sidebar-scroll -->
@@ -395,4 +448,64 @@
 		line-height: 1.4;
 	}
 	@media (max-width: 767px) { .call-btn { opacity: 1; } }
+	.invite-section {
+		padding: 0 0.75rem 0.75rem;
+		border-top: 1px solid var(--border);
+		margin-top: 0.5rem;
+	}
+	.gen-invite-btn {
+		width: 100%;
+		background: rgba(255,255,255,0.07);
+		border: 1px solid var(--border);
+		color: var(--text);
+		padding: 0.4rem 0.75rem;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 0.82rem;
+		font-family: inherit;
+		text-align: left;
+		transition: background 0.15s;
+	}
+	.gen-invite-btn:hover:not(:disabled) { background: rgba(255,255,255,0.11); }
+	.gen-invite-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+	.invite-code-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		background: var(--bg-input);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		padding: 0.35rem 0.5rem;
+	}
+	.invite-code {
+		flex: 1;
+		font-family: monospace;
+		font-size: 0.85rem;
+		color: var(--accent);
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.copy-invite-btn {
+		background: none;
+		border: none;
+		color: var(--text-muted);
+		cursor: pointer;
+		font-size: 0.75rem;
+		padding: 0.1rem 0.3rem;
+		border-radius: 3px;
+		flex-shrink: 0;
+	}
+	.copy-invite-btn:hover { color: var(--text); background: rgba(255,255,255,0.08); }
+	.invite-meta, .invite-hint {
+		font-size: 0.72rem;
+		color: var(--text-muted);
+		margin: 0.25rem 0 0;
+	}
+	.invite-error {
+		font-size: 0.78rem;
+		color: #e04545;
+		margin: 0.25rem 0;
+	}
 </style>

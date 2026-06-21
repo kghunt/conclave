@@ -344,6 +344,64 @@ func (h *AdminHandler) DeleteRegistrationInvite(w http.ResponseWriter, r *http.R
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// GenerateUserInvite lets any logged-in user create a single-use 24-hour
+// registration invite code. Limited to one per user per 24 hours.
+func (h *AdminHandler) GenerateUserInvite(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID := middleware.UserID(r)
+
+	// Check registration mode — if closed or local auth disabled, no point generating a code.
+	getSetting := func(key string) string {
+		var val string
+		h.db.QueryRow(ctx, `SELECT value FROM settings WHERE key = $1`, key).Scan(&val)
+		return val
+	}
+	if getSetting("local_auth_enabled") == "false" {
+		writeErr(w, http.StatusForbidden, "Local auth is disabled on this instance")
+		return
+	}
+	regMode := getSetting("registration_mode")
+	if regMode == "closed" {
+		writeErr(w, http.StatusForbidden, "Registration is closed on this instance")
+		return
+	}
+
+	// Rate limit: one invite per user per 24 hours.
+	var recentCount int
+	h.db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM registration_invites
+		WHERE created_by = $1 AND created_at > NOW() - INTERVAL '24 hours'
+	`, userID).Scan(&recentCount)
+	if recentCount > 0 {
+		writeErr(w, http.StatusTooManyRequests, "You can only generate one invite code per day")
+		return
+	}
+
+	code := randomInviteCode()
+	type inviteRow struct {
+		ID        string  `json:"id"`
+		Code      string  `json:"code"`
+		MaxUses   *int    `json:"max_uses"`
+		UseCount  int     `json:"use_count"`
+		ExpiresAt *string `json:"expires_at"`
+		CreatedAt string  `json:"created_at"`
+	}
+	var inv inviteRow
+	var expiresAt *string
+	maxUses := 1
+	if err := h.db.QueryRow(ctx, `
+		INSERT INTO registration_invites (code, created_by, max_uses, expires_at)
+		VALUES ($1, $2, 1, NOW() + INTERVAL '1 day')
+		RETURNING id, code, max_uses, use_count, expires_at::text, created_at::text
+	`, code, userID).Scan(&inv.ID, &inv.Code, &maxUses, &inv.UseCount, &expiresAt, &inv.CreatedAt); err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to create invite")
+		return
+	}
+	inv.MaxUses = &maxUses
+	inv.ExpiresAt = expiresAt
+	writeJSON(w, http.StatusCreated, inv)
+}
+
 func randomInviteCode() string {
 	b := make([]byte, 9)
 	rand.Read(b)
