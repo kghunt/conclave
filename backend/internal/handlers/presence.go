@@ -55,12 +55,18 @@ func (h *PresenceHandler) RevokeToken(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// HasToken returns whether the user has a presence token configured.
+// HasToken returns whether the user has a token and whether the app recently checked in.
+// active = heartbeat received within the last 2 minutes.
 func (h *PresenceHandler) HasToken(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r)
-	var exists bool
-	h.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM presence_tokens WHERE user_id = $1)`, userID).Scan(&exists)
-	writeJSON(w, http.StatusOK, map[string]bool{"connected": exists})
+	var hasToken bool
+	var active bool
+	h.db.QueryRow(r.Context(),
+		`SELECT EXISTS(SELECT 1 FROM presence_tokens WHERE user_id = $1),
+		        EXISTS(SELECT 1 FROM presence_tokens WHERE user_id = $1 AND last_heartbeat_at > NOW() - INTERVAL '2 minutes')`,
+		userID,
+	).Scan(&hasToken, &active)
+	writeJSON(w, http.StatusOK, map[string]any{"has_token": hasToken, "active": active})
 }
 
 // Heartbeat is called by the desktop app (Bearer token auth) to report the
@@ -85,6 +91,7 @@ func (h *PresenceHandler) Heartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	decodeJSON(r, &body)
 
+	h.db.Exec(r.Context(), `UPDATE presence_tokens SET last_heartbeat_at = NOW() WHERE token = $1`, token)
 	h.hub.SetGameStatus(userID, body.Game)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
