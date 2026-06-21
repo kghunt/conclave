@@ -358,6 +358,12 @@
 		const room = 'user:' + uid;
 		socket.subscribe(room);
 		const unsub = socket.on((event) => {
+			if (event.type === 'friend.request') {
+				friendRequests.update((prev) => {
+					if (prev.find((r) => r.user.id === event.payload.id)) return prev;
+					return [...prev, { user: event.payload, since: new Date().toISOString() }];
+				});
+			}
 			if (event.type === 'friend.accepted') {
 				Promise.all([api.listFriends(), api.listFriendRequestsSent()]).then(([fr, sent]) => {
 					friends.set(fr ?? []);

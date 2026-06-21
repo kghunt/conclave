@@ -122,6 +122,15 @@ func (h *FriendsHandler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to send request")
 		return
 	}
+
+	// Notify the target in real-time that they have a new friend request
+	var requester models.User
+	h.db.QueryRow(r.Context(), `SELECT id, display_name, bio, avatar_url, created_at, updated_at FROM users WHERE id = $1`, userID).
+		Scan(&requester.ID, &requester.DisplayName, &requester.Bio, &requester.AvatarURL, &requester.CreatedAt, &requester.UpdatedAt)
+	if payload, err := json.Marshal(requester); err == nil {
+		h.hub.Broadcast("user:"+targetID, ws.Event{Type: "friend.request", Payload: payload})
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "pending"})
 }
 
