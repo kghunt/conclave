@@ -39,8 +39,8 @@
 	}
 
 	function tryRequest(space: ServerDiscovery) {
-		if (busy[space.id] || space.has_pending_request) return;
-		if (space.rules) { rulesSpace = space; rulesAccepted = false; return; }
+		if (busy[space.id]) return;
+		if (space.rules && !space.has_pending_request) { rulesSpace = space; rulesAccepted = false; return; }
 		doRequest(space);
 	}
 
@@ -159,7 +159,7 @@
 		{#if requestSent}
 			{@const sentSpace = results.find(s => s.id === requestSent)}
 			<div class="request-toast">
-				✓ Request sent to <strong>{sentSpace?.name ?? 'space'}</strong> — admins will review it shortly.
+				✓ Request sent to <strong>{sentSpace?.name ?? 'space'}</strong> — admins have been notified.
 			</div>
 		{/if}
 		{#if requestError}
@@ -197,10 +197,11 @@
 							<button
 								class="join-btn"
 								class:requested={space.has_pending_request}
-								disabled={space.has_pending_request || busy[space.id]}
+								disabled={busy[space.id]}
 								onclick={() => tryRequest(space)}
+								title={space.has_pending_request ? 'Request pending — click to re-notify admins' : ''}
 							>
-								{#if busy[space.id]}Requesting…{:else if space.has_pending_request}Requested{:else}Request{/if}
+								{#if busy[space.id]}Requesting…{:else if space.has_pending_request}Requested ↺{:else}Request{/if}
 							</button>
 						{:else}
 							<button
