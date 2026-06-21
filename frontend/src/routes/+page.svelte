@@ -132,18 +132,12 @@
 			pendingJoinRequests.set([]);
 		}
 
-		// Subscribe to server room for presence.update and join request events
+		// Subscribe to server room for presence.update events
 		const room = 'server:' + id;
 		socket.subscribe(room);
 		const unsub = socket.on((event) => {
 			if (event.type === 'presence.update') {
 				presenceMap.update(m => ({ ...m, [event.payload.user_id]: event.payload.status }));
-			}
-			if (event.type === 'join_request.new' && event.payload.server_id === id && isAdmin) {
-				pendingJoinRequests.update((prev) => {
-					if (prev.find((r) => r.id === event.payload.request_id)) return prev;
-					return [...prev, { id: event.payload.request_id, server_id: id, user: event.payload.user, status: 'pending', created_at: new Date().toISOString() }];
-				});
 			}
 		});
 		return () => { unsub(); socket.unsubscribe(room); };
@@ -407,6 +401,12 @@
 				dmConversations.update((cs) => cs.map((c) =>
 					c.id === event.payload.conversation_id ? { ...c, unread_count: c.unread_count + 1 } : c
 				));
+			}
+			if (event.type === 'join_request.new' && event.payload.server_id === $activeServer?.id) {
+				pendingJoinRequests.update((prev) => {
+					if (prev.find((r) => r.id === event.payload.request_id)) return prev;
+					return [...prev, { id: event.payload.request_id, server_id: event.payload.server_id, user: event.payload.user, status: 'pending', created_at: new Date().toISOString() }];
+				});
 			}
 			if (event.type === 'member.kicked' || event.type === 'member.banned') {
 				const sid = event.payload.server_id;
