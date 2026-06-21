@@ -17,7 +17,10 @@
 	const isOwner = $derived($activeServer?.role === 'owner');
 	const isInstanceAdmin = $derived($currentUser?.is_instance_admin ?? false);
 
-	onMount(load);
+	onMount(() => {
+		load();
+		api.listJoinRequests(serverId).then((reqs) => pendingJoinRequests.set(reqs ?? [])).catch(() => {});
+	});
 
 	// Subscribe to server-level room and reload on membership changes
 	$effect(() => {
