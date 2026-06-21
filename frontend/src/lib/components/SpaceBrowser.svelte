@@ -73,15 +73,19 @@
 		}
 	}
 
+	let requestError = $state<string | null>(null);
+
 	async function doRequest(space: ServerDiscovery) {
 		busy = { ...busy, [space.id]: true };
+		requestError = null;
 		try {
 			await api.requestJoinServer(space.id);
 			results = results.map((s) => s.id === space.id ? { ...s, has_pending_request: true } : s);
 			requestSent = space.id;
 			setTimeout(() => { if (requestSent === space.id) requestSent = null; }, 4000);
-		} catch {
-			// ignore
+		} catch (e: any) {
+			requestError = e?.message ?? 'Failed to send request';
+			setTimeout(() => { requestError = null; }, 6000);
 		} finally {
 			busy = { ...busy, [space.id]: false };
 		}
@@ -157,6 +161,9 @@
 			<div class="request-toast">
 				✓ Request sent to <strong>{sentSpace?.name ?? 'space'}</strong> — admins will review it shortly.
 			</div>
+		{/if}
+		{#if requestError}
+			<div class="request-error">{requestError}</div>
 		{/if}
 
 		<div class="results">
@@ -357,6 +364,15 @@
 		font-size: 0.85rem;
 	}
 	.request-toast strong { font-weight: 600; }
+	.request-error {
+		margin: 0.5rem 1rem 0;
+		padding: 0.6rem 0.9rem;
+		background: color-mix(in srgb, #e04545 15%, transparent);
+		border: 1px solid #e04545;
+		border-radius: 6px;
+		color: #e04545;
+		font-size: 0.85rem;
+	}
 	.private-badge {
 		font-size: 0.7rem;
 		color: var(--text-muted);
