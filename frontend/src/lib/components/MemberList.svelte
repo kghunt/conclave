@@ -33,13 +33,6 @@
 			) {
 				load();
 			}
-			if (event.type === 'join_request.new' && event.payload.server_id === id && isAdmin) {
-				pendingJoinRequests.update((prev) => {
-					const exists = prev.find((r) => r.user?.id === event.payload.user?.id);
-					if (exists) return prev;
-					return [...prev, { id: event.payload.request_id, server_id: id, user: event.payload.user, status: 'pending', created_at: new Date().toISOString() }];
-				});
-			}
 		});
 		return () => {
 			unsub();
@@ -91,17 +84,6 @@
 	}
 
 	const friendIds = $derived(new Set($friends.map((f) => f.user.id)));
-
-	// Load join requests when current user is admin
-	$effect(() => {
-		if (isAdmin && serverId) {
-			api.listJoinRequests(serverId).then((reqs) => {
-				pendingJoinRequests.set(reqs ?? []);
-			}).catch(() => pendingJoinRequests.set([]));
-		} else {
-			pendingJoinRequests.set([]);
-		}
-	});
 
 	async function reviewRequest(req: JoinRequest, action: 'approve' | 'decline') {
 		await api.reviewJoinRequest(serverId, req.id, action);

@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api, type Message, type DirectMessage, type MessageReply, type Thread, type Reaction } from '$lib/api';
 	import { socket } from '$lib/socket';
-	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent, instanceConfig, serverMembers, mentionedChannels, presenceMap, notifPrefs, serverUnread, homeMode } from '$lib/stores';
+	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent, instanceConfig, serverMembers, mentionedChannels, presenceMap, notifPrefs, serverUnread, homeMode, pendingJoinRequests } from '$lib/stores';
 	import { playMessageSound, playMentionSound, playDMSound } from '$lib/sounds';
 	import { handleIncomingCall, handleCallAccepted, handleCallDeclined, handleCallEnded, handleCallCancelled } from '$lib/voice';
 	import CallNotification from '$lib/components/CallNotification.svelte';
@@ -125,12 +125,25 @@
 		api.getMembers(id).then((ms) => serverMembers.set(ms ?? []));
 		api.getPresence(id).then((p) => presenceMap.update(m => ({ ...m, ...p })));
 
-		// Subscribe to server room for presence.update events
+		const isAdmin = srv.role === 'owner' || srv.role === 'admin';
+		if (isAdmin) {
+			api.listJoinRequests(id).then((reqs) => pendingJoinRequests.set(reqs ?? [])).catch(() => {});
+		} else {
+			pendingJoinRequests.set([]);
+		}
+
+		// Subscribe to server room for presence.update and join request events
 		const room = 'server:' + id;
 		socket.subscribe(room);
 		const unsub = socket.on((event) => {
 			if (event.type === 'presence.update') {
 				presenceMap.update(m => ({ ...m, [event.payload.user_id]: event.payload.status }));
+			}
+			if (event.type === 'join_request.new' && event.payload.server_id === id && isAdmin) {
+				pendingJoinRequests.update((prev) => {
+					if (prev.find((r) => r.id === event.payload.request_id)) return prev;
+					return [...prev, { id: event.payload.request_id, server_id: id, user: event.payload.user, status: 'pending', created_at: new Date().toISOString() }];
+				});
 			}
 		});
 		return () => { unsub(); socket.unsubscribe(room); };
@@ -635,8 +648,11 @@
 				</div>
 				<div class="header-actions">
 					{#if $activeChannel}
-						<button onclick={() => (showMembers = !showMembers)} class="icon-btn" class:active={showMembers} title="Members">
+						<button onclick={() => (showMembers = !showMembers)} class="icon-btn" class:active={showMembers} title="Members" style="position:relative">
 							<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+							{#if $pendingJoinRequests.length > 0}
+								<span style="position:absolute;top:2px;right:2px;width:8px;height:8px;border-radius:50%;background:#e04545;border:2px solid var(--bg-panel)"></span>
+							{/if}
 						</button>
 					{/if}
 				</div>
