@@ -130,7 +130,7 @@
 {/if}
 
 {#if showDeleteConfirm}
-	<div class="menu edit-menu" style="left:{x}px; top:{y}px">
+	<div class="menu edit-menu" style="left:{x}px; top:{y}px; max-height:calc(100dvh - {y + 16}px); overflow-y:auto">
 		<div class="menu-header">Delete Space</div>
 		<p class="delete-warning">Permanently deletes <strong>{server.name}</strong> and all its channels and messages. This cannot be undone.</p>
 		<label>
@@ -153,7 +153,7 @@
 		</div>
 	</div>
 {:else if showEdit}
-	<div class="menu edit-menu" style="left:{x}px; top:{y}px">
+	<div class="menu edit-menu" style="left:{x}px; top:{y}px; max-height:calc(100dvh - {y + 16}px); overflow-y:auto">
 		<div class="menu-header">Edit Space</div>
 		<label>
 			Name

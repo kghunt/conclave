@@ -239,6 +239,10 @@
 				if ($notifPrefs.dmSound && event.payload.sender?.id !== $currentUser?.id) {
 					playDMSound();
 				}
+				dmConversations.update((cs) => {
+					const updated = cs.map((c) => c.id === convId ? { ...c, last_message_at: event.payload.created_at } : c);
+					return [...updated].sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime());
+				});
 			}
 			if (event.type === 'dm.delete' && event.payload.conversation_id === convId) {
 				dmMessages = dmMessages.filter((m) => m.id !== event.payload.id);
@@ -404,9 +408,14 @@
 			// dm.new delivered via user room = message in a non-active conversation
 			if (event.type === 'dm.new' && event.payload.conversation_id !== $activeDM?.id && event.payload.sender?.id !== uid) {
 				if ($notifPrefs.dmSound) playDMSound();
-				dmConversations.update((cs) => cs.map((c) =>
-					c.id === event.payload.conversation_id ? { ...c, unread_count: c.unread_count + 1 } : c
-				));
+				dmConversations.update((cs) => {
+					const updated = cs.map((c) =>
+						c.id === event.payload.conversation_id
+							? { ...c, unread_count: c.unread_count + 1, last_message_at: event.payload.created_at }
+							: c
+					);
+					return [...updated].sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime());
+				});
 			}
 			if (event.type === 'join_request.new' && event.payload.server_id === $activeServer?.id) {
 				pendingJoinRequests.update((prev) => {

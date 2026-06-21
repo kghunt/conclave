@@ -358,6 +358,7 @@ export interface DMConversation {
 	other_user: User;
 	unread_count: number;
 	created_at: string;
+	last_message_at: string;
 }
 
 export interface DirectMessage {
