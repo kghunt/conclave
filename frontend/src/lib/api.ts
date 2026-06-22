@@ -172,6 +172,12 @@ export const api = {
 	listBans: (serverId: string) =>
 		req<BannedUser[]>('GET', `/servers/${serverId}/bans`),
 
+	// local auth
+	register: (data: { username: string; password: string; invite_code?: string }) =>
+		req<User>('POST', '/auth/register', data),
+	localLogin: (data: { username: string; password: string }) =>
+		req<User>('POST', '/auth/local-login', data),
+
 	// instance admin
 	getAdminSettings: () => req<AdminSettings>('GET', '/admin/settings'),
 	updateAdminSettings: (data: Partial<AdminSettings>) => req<void>('PATCH', '/admin/settings', data),
@@ -179,6 +185,10 @@ export const api = {
 	listInstanceUsers: () => req<InstanceUser[]>('GET', '/admin/users'),
 	banInstanceUser: (userId: string) => req<void>('POST', `/admin/users/${userId}/ban`),
 	unbanInstanceUser: (userId: string) => req<void>('DELETE', `/admin/users/${userId}/ban`),
+	listRegistrationInvites: () => req<RegistrationInvite[]>('GET', '/admin/registration-invites'),
+	createRegistrationInvite: (data: { max_uses?: number; expires_in_days?: number }) =>
+		req<RegistrationInvite>('POST', '/admin/registration-invites', data),
+	deleteRegistrationInvite: (id: string) => req<void>('DELETE', `/admin/registration-invites/${id}`),
 
 	// avatar upload
 	uploadAvatar: async (file: File) => {
@@ -217,6 +227,18 @@ export interface AdminSettings {
 export interface InstanceConfig {
 	allow_user_space_creation: boolean;
 	max_video_size_mb: number;
+	google_auth_enabled: boolean;
+	local_auth_enabled: boolean;
+	registration_mode: 'open' | 'invite' | 'closed';
+}
+
+export interface RegistrationInvite {
+	id: string;
+	code: string;
+	max_uses: number | null;
+	use_count: number;
+	expires_at: string | null;
+	created_at: string;
 }
 
 export interface ServerDiscovery {

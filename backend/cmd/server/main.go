@@ -82,6 +82,8 @@ func main() {
 	r.Get("/api/auth/login", authH.Login)
 	r.Get("/api/auth/callback", authH.Callback)
 	r.Post("/api/auth/logout", authH.Logout)
+	r.Post("/api/auth/register", authH.Register)
+	r.Post("/api/auth/local-login", authH.LocalLogin)
 	r.Get("/api/invites/{code}", serversH.GetInvite)
 
 	// websocket
@@ -198,6 +200,9 @@ func main() {
 		r.Get("/api/admin/users", adminH.ListInstanceUsers)
 		r.Post("/api/admin/users/{userID}/ban", adminH.BanInstanceUser)
 		r.Delete("/api/admin/users/{userID}/ban", adminH.UnbanInstanceUser)
+		r.Get("/api/admin/registration-invites", adminH.ListRegistrationInvites)
+		r.Post("/api/admin/registration-invites", adminH.CreateRegistrationInvite)
+		r.Delete("/api/admin/registration-invites/{id}", adminH.DeleteRegistrationInvite)
 	})
 
 	// serve frontend (SvelteKit static build) with SPA fallback

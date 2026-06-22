@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"crypto/rand"
 	"crypto/subtle"
+	"encoding/base64"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -79,6 +81,11 @@ func (h *AdminHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	boolKeys := map[string]bool{
 		"allow_user_space_creation": true,
+		"google_auth_enabled":       true,
+		"local_auth_enabled":        true,
+	}
+	enumKeys := map[string][]string{
+		"registration_mode": {"open", "invite", "closed"},
 	}
 
 	for k, v := range body {
@@ -97,6 +104,18 @@ func (h *AdminHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		case boolKeys[k]:
 			if v != "true" && v != "false" && v != "" {
 				writeErr(w, http.StatusBadRequest, k+" must be true or false")
+				return
+			}
+		case enumKeys[k] != nil:
+			valid := false
+			for _, opt := range enumKeys[k] {
+				if v == opt {
+					valid = true
+					break
+				}
+			}
+			if !valid && v != "" {
+				writeErr(w, http.StatusBadRequest, k+" must be one of: "+strings.Join(enumKeys[k], ", "))
 				return
 			}
 		default:
@@ -206,12 +225,127 @@ func (h *AdminHandler) ListInstanceUsers(w http.ResponseWriter, r *http.Request)
 
 // GetConfig returns public instance-wide config flags (no auth required).
 func (h *AdminHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
-	var allowVal string
-	h.db.QueryRow(r.Context(), `SELECT value FROM settings WHERE key = 'allow_user_space_creation'`).Scan(&allowVal)
-	allowCreate := allowVal != "false"
-	videoLimit := videoSizeLimitMB(r.Context(), h.db)
+	ctx := r.Context()
+	getSetting := func(key string) string {
+		var val string
+		h.db.QueryRow(ctx, `SELECT value FROM settings WHERE key = $1`, key).Scan(&val)
+		return val
+	}
+
+	regMode := getSetting("registration_mode")
+	if regMode == "" {
+		regMode = "invite"
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"allow_user_space_creation": allowCreate,
-		"max_video_size_mb":         videoLimit,
+		"allow_user_space_creation": getSetting("allow_user_space_creation") != "false",
+		"max_video_size_mb":         videoSizeLimitMB(ctx, h.db),
+		"google_auth_enabled":       getSetting("google_auth_enabled") != "false",
+		"local_auth_enabled":        getSetting("local_auth_enabled") != "false",
+		"registration_mode":         regMode,
 	})
+}
+
+// ListRegistrationInvites returns all registration invite codes.
+func (h *AdminHandler) ListRegistrationInvites(w http.ResponseWriter, r *http.Request) {
+	if !h.isAdmin(r) {
+		writeErr(w, http.StatusForbidden, "instance admin only")
+		return
+	}
+	rows, err := h.db.Query(r.Context(), `
+		SELECT id, code, max_uses, use_count, expires_at, created_at
+		FROM registration_invites
+		ORDER BY created_at DESC
+	`)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	defer rows.Close()
+	type inviteRow struct {
+		ID        string  `json:"id"`
+		Code      string  `json:"code"`
+		MaxUses   *int    `json:"max_uses"`
+		UseCount  int     `json:"use_count"`
+		ExpiresAt *string `json:"expires_at"`
+		CreatedAt string  `json:"created_at"`
+	}
+	invites := make([]inviteRow, 0)
+	for rows.Next() {
+		var inv inviteRow
+		if err := rows.Scan(&inv.ID, &inv.Code, &inv.MaxUses, &inv.UseCount, &inv.ExpiresAt, &inv.CreatedAt); err != nil {
+			continue
+		}
+		invites = append(invites, inv)
+	}
+	writeJSON(w, http.StatusOK, invites)
+}
+
+// CreateRegistrationInvite generates a new registration invite code.
+func (h *AdminHandler) CreateRegistrationInvite(w http.ResponseWriter, r *http.Request) {
+	if !h.isAdmin(r) {
+		writeErr(w, http.StatusForbidden, "instance admin only")
+		return
+	}
+	var body struct {
+		MaxUses      *int `json:"max_uses"`
+		ExpiresInDays *int `json:"expires_in_days"`
+	}
+	decodeJSON(r, &body)
+
+	code := randomInviteCode()
+	type inviteRow struct {
+		ID        string  `json:"id"`
+		Code      string  `json:"code"`
+		MaxUses   *int    `json:"max_uses"`
+		UseCount  int     `json:"use_count"`
+		ExpiresAt *string `json:"expires_at"`
+		CreatedAt string  `json:"created_at"`
+	}
+	var inv inviteRow
+	var expiresAt *string
+	if body.ExpiresInDays != nil && *body.ExpiresInDays > 0 {
+		err := h.db.QueryRow(r.Context(), `
+			INSERT INTO registration_invites (code, created_by, max_uses, expires_at)
+			VALUES ($1, $2, $3, NOW() + ($4 || ' days')::interval)
+			RETURNING id, code, max_uses, use_count, expires_at::text, created_at::text
+		`, code, middleware.UserID(r), body.MaxUses, *body.ExpiresInDays).Scan(
+			&inv.ID, &inv.Code, &inv.MaxUses, &inv.UseCount, &expiresAt, &inv.CreatedAt,
+		)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "failed to create invite")
+			return
+		}
+	} else {
+		err := h.db.QueryRow(r.Context(), `
+			INSERT INTO registration_invites (code, created_by, max_uses)
+			VALUES ($1, $2, $3)
+			RETURNING id, code, max_uses, use_count, expires_at::text, created_at::text
+		`, code, middleware.UserID(r), body.MaxUses).Scan(
+			&inv.ID, &inv.Code, &inv.MaxUses, &inv.UseCount, &expiresAt, &inv.CreatedAt,
+		)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "failed to create invite")
+			return
+		}
+	}
+	inv.ExpiresAt = expiresAt
+	writeJSON(w, http.StatusCreated, inv)
+}
+
+// DeleteRegistrationInvite removes a registration invite code.
+func (h *AdminHandler) DeleteRegistrationInvite(w http.ResponseWriter, r *http.Request) {
+	if !h.isAdmin(r) {
+		writeErr(w, http.StatusForbidden, "instance admin only")
+		return
+	}
+	id := chi.URLParam(r, "id")
+	h.db.Exec(r.Context(), `DELETE FROM registration_invites WHERE id = $1`, id)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func randomInviteCode() string {
+	b := make([]byte, 9)
+	rand.Read(b)
+	return base64.RawURLEncoding.EncodeToString(b)
 }

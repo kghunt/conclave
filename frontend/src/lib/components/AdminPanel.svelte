@@ -1,10 +1,16 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { api, type AdminSettings, type InstanceUser } from '$lib/api';
+	import { api, type AdminSettings, type InstanceUser, type RegistrationInvite } from '$lib/api';
 
 	let { onclose }: { onclose: () => void } = $props();
 
-	let settings = $state<AdminSettings>({ message_retention_days: '0', inactive_space_retention_days: '0' });
+	let settings = $state<AdminSettings>({ message_retention_days: '0', inactive_space_retention_days: '0', google_auth_enabled: 'true', local_auth_enabled: 'true', registration_mode: 'invite' });
+	let registrationInvites = $state<RegistrationInvite[]>([]);
+	let newInviteMaxUses = $state<number | null>(null);
+	let newInviteExpireDays = $state<number | null>(null);
+	let creatingInvite = $state(false);
+	let deletingInvite = $state<string | null>(null);
+	let copiedInvite = $state<string | null>(null);
 	let saving = $state(false);
 	let running = $state(false);
 	let runStatus = $state('');
@@ -34,7 +40,13 @@
 
 	onMount(async () => {
 		try {
-			settings = await api.getAdminSettings();
+			const s = await api.getAdminSettings();
+			settings = {
+				google_auth_enabled: 'true',
+				local_auth_enabled: 'true',
+				registration_mode: 'invite',
+				...s
+			};
 		} catch (e: any) {
 			error = e.message;
 		}
@@ -45,7 +57,42 @@
 		try {
 			instanceUsers = await api.listInstanceUsers();
 		} catch { /* ignore */ }
+		try {
+			registrationInvites = await api.listRegistrationInvites();
+		} catch { /* ignore */ }
 	});
+
+	async function createInvite() {
+		if (creatingInvite) return;
+		creatingInvite = true;
+		try {
+			const inv = await api.createRegistrationInvite({
+				max_uses: newInviteMaxUses ?? undefined,
+				expires_in_days: newInviteExpireDays ?? undefined
+			});
+			registrationInvites = [inv, ...registrationInvites];
+		} catch (e: any) {
+			error = e.message;
+		} finally {
+			creatingInvite = false;
+		}
+	}
+
+	async function deleteInvite(id: string) {
+		deletingInvite = id;
+		try {
+			await api.deleteRegistrationInvite(id);
+			registrationInvites = registrationInvites.filter((i) => i.id !== id);
+		} catch { /* ignore */ } finally {
+			deletingInvite = null;
+		}
+	}
+
+	async function copyInviteCode(code: string) {
+		await navigator.clipboard.writeText(code);
+		copiedInvite = code;
+		setTimeout(() => (copiedInvite = null), 2000);
+	}
 
 	function onColorInput(key: ThemeKey, value: string) {
 		theme = { ...theme, [key]: value };
@@ -140,6 +187,94 @@
 		{#if error}
 			<p class="error">{error}</p>
 		{/if}
+
+		<section>
+			<h3>Authentication</h3>
+			<div class="setting">
+				<label class="toggle-label">
+					<span>Google sign-in</span>
+					<input
+						type="checkbox"
+						checked={settings.google_auth_enabled !== 'false'}
+						onchange={(e) => { settings = { ...settings, google_auth_enabled: (e.target as HTMLInputElement).checked ? 'true' : 'false' }; }}
+					/>
+				</label>
+				<p class="hint">Allow users to sign in with their Google account. Requires GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to be set.</p>
+			</div>
+			<div class="setting">
+				<label class="toggle-label">
+					<span>Username &amp; password</span>
+					<input
+						type="checkbox"
+						checked={settings.local_auth_enabled !== 'false'}
+						onchange={(e) => { settings = { ...settings, local_auth_enabled: (e.target as HTMLInputElement).checked ? 'true' : 'false' }; }}
+					/>
+				</label>
+				<p class="hint">Allow users to register and log in with a username and password.</p>
+			</div>
+			{#if settings.local_auth_enabled !== 'false'}
+				<div class="setting">
+					<label for="reg-mode">Registration</label>
+					<select id="reg-mode" bind:value={settings.registration_mode}>
+						<option value="invite">Invite only — requires an admin-generated code</option>
+						<option value="open">Open — anyone can register (rate limited)</option>
+						<option value="closed">Closed — no new registrations</option>
+					</select>
+					<p class="hint">
+						{#if settings.registration_mode === 'invite'}
+							New accounts require a registration invite code. Generate codes below.
+						{:else if settings.registration_mode === 'open'}
+							Anyone can create an account. Rate limited to 5 registrations per IP per hour.
+						{:else}
+							No new accounts can be created. Existing accounts can still log in.
+						{/if}
+					</p>
+				</div>
+
+				{#if settings.registration_mode === 'invite'}
+					<div class="setting">
+						<label>Registration invite codes</label>
+						<div class="invite-create">
+							<div class="invite-create-row">
+								<div class="invite-field">
+									<span class="invite-field-label">Max uses</span>
+									<input type="number" min="1" placeholder="∞" bind:value={newInviteMaxUses} class="invite-num" />
+								</div>
+								<div class="invite-field">
+									<span class="invite-field-label">Expires in</span>
+									<div class="invite-expire-row">
+										<input type="number" min="1" placeholder="never" bind:value={newInviteExpireDays} class="invite-num" />
+										<span class="unit">days</span>
+									</div>
+								</div>
+								<button class="create-invite-btn" onclick={createInvite} disabled={creatingInvite}>
+									{creatingInvite ? '…' : 'Generate'}
+								</button>
+							</div>
+						</div>
+						{#if registrationInvites.length > 0}
+							<div class="invite-list">
+								{#each registrationInvites as inv}
+									<div class="invite-row">
+										<code class="invite-code">{inv.code}</code>
+										<span class="invite-meta">
+											{inv.use_count}{inv.max_uses != null ? `/${inv.max_uses}` : ''} used
+											{#if inv.expires_at}· expires {new Date(inv.expires_at).toLocaleDateString()}{/if}
+										</span>
+										<button class="copy-invite-btn" onclick={() => copyInviteCode(inv.code)}>
+											{copiedInvite === inv.code ? '✓' : 'Copy'}
+										</button>
+										<button class="del-invite-btn" onclick={() => deleteInvite(inv.id)} disabled={deletingInvite === inv.id}>✕</button>
+									</div>
+								{/each}
+							</div>
+						{:else}
+							<p class="hint" style="margin-top:0.5rem">No invite codes yet. Generate one above and share it with users you want to invite.</p>
+						{/if}
+					</div>
+				{/if}
+			{/if}
+		</section>
 
 		<section>
 			<h3>General</h3>
@@ -520,4 +655,87 @@
 		font-weight: 600;
 	}
 	.save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+	select {
+		background: var(--bg-input);
+		border: 1px solid var(--border);
+		color: var(--text);
+		padding: 0.5rem 0.75rem;
+		border-radius: 6px;
+		font-size: 0.875rem;
+		font-family: inherit;
+		outline: none;
+		width: 100%;
+	}
+	select:focus { border-color: var(--accent); }
+	.invite-create { margin-top: 0.5rem; }
+	.invite-create-row {
+		display: flex;
+		align-items: flex-end;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+	}
+	.invite-field { display: flex; flex-direction: column; gap: 0.25rem; }
+	.invite-field-label { font-size: 0.72rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+	.invite-expire-row { display: flex; align-items: center; gap: 0.4rem; }
+	.invite-num { width: 80px; }
+	.create-invite-btn {
+		background: var(--accent);
+		border: none;
+		color: white;
+		padding: 0.5rem 1rem;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 0.875rem;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+	.create-invite-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+	.invite-list { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.375rem; }
+	.invite-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		background: var(--bg-input);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		padding: 0.4rem 0.625rem;
+	}
+	.invite-code {
+		font-family: monospace;
+		font-size: 0.85rem;
+		color: var(--accent);
+		flex-shrink: 0;
+	}
+	.invite-meta {
+		flex: 1;
+		font-size: 0.72rem;
+		color: var(--text-muted);
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.copy-invite-btn {
+		background: rgba(255,255,255,0.08);
+		border: none;
+		color: var(--text);
+		padding: 0.2rem 0.5rem;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.75rem;
+		flex-shrink: 0;
+	}
+	.copy-invite-btn:hover { background: rgba(255,255,255,0.14); }
+	.del-invite-btn {
+		background: none;
+		border: none;
+		color: var(--text-muted);
+		cursor: pointer;
+		padding: 0.2rem 0.3rem;
+		border-radius: 3px;
+		font-size: 0.8rem;
+		flex-shrink: 0;
+	}
+	.del-invite-btn:hover { color: #e04545; }
+	.del-invite-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 </style>

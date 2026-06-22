@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
@@ -30,23 +31,32 @@ type Service struct {
 }
 
 func New(clientID, clientSecret, redirectURL, jwtSecret string) *Service {
-	return &Service{
-		oauth: &oauth2.Config{
+	svc := &Service{secret: []byte(jwtSecret)}
+	if clientID != "" && clientSecret != "" {
+		svc.oauth = &oauth2.Config{
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
 			RedirectURL:  redirectURL,
 			Scopes:       []string{"openid", "email", "profile"},
 			Endpoint:     google.Endpoint,
-		},
-		secret: []byte(jwtSecret),
+		}
 	}
+	return svc
 }
 
+func (s *Service) GoogleEnabled() bool { return s.oauth != nil }
+
 func (s *Service) AuthURL(state string) string {
+	if s.oauth == nil {
+		return ""
+	}
 	return s.oauth.AuthCodeURL(state, oauth2.AccessTypeOnline)
 }
 
 func (s *Service) ExchangeCode(ctx context.Context, code string) (*GoogleUser, error) {
+	if s.oauth == nil {
+		return nil, fmt.Errorf("google auth not configured")
+	}
 	token, err := s.oauth.Exchange(ctx, code)
 	if err != nil {
 		return nil, fmt.Errorf("exchange code: %w", err)
@@ -97,7 +107,6 @@ func (s *Service) ParseToken(tokenStr string) (*Claims, error) {
 func (s *Service) TokenFromRequest(r *http.Request) (*Claims, error) {
 	cookie, err := r.Cookie("token")
 	if err != nil {
-		// fallback to Authorization header
 		h := r.Header.Get("Authorization")
 		if len(h) > 7 && h[:7] == "Bearer " {
 			return s.ParseToken(h[7:])
@@ -105,4 +114,13 @@ func (s *Service) TokenFromRequest(r *http.Request) (*Claims, error) {
 		return nil, fmt.Errorf("no token")
 	}
 	return s.ParseToken(cookie.Value)
+}
+
+func HashPassword(password string) (string, error) {
+	b, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	return string(b), err
+}
+
+func CheckPassword(hash, password string) bool {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
