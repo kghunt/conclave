@@ -196,7 +196,7 @@ func (h *AdminHandler) ListInstanceUsers(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	rows, err := h.db.Query(r.Context(), `
-		SELECT id, display_name, email, avatar_url, instance_banned, created_at
+		SELECT id, display_name, COALESCE(email, ''), COALESCE(avatar_url, ''), instance_banned, created_at::text
 		FROM users ORDER BY display_name
 	`)
 	if err != nil {
@@ -253,7 +253,7 @@ func (h *AdminHandler) ListRegistrationInvites(w http.ResponseWriter, r *http.Re
 		return
 	}
 	rows, err := h.db.Query(r.Context(), `
-		SELECT id, code, max_uses, use_count, expires_at, created_at
+		SELECT id, code, max_uses, use_count, expires_at::text, created_at::text
 		FROM registration_invites
 		ORDER BY created_at DESC
 	`)
