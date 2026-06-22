@@ -95,6 +95,26 @@ func main() {
 	// serve avatars
 	r.Handle("/avatars/*", http.StripPrefix("/avatars/", http.FileServer(http.Dir(cfg.AvatarDir))))
 
+	// serve desktop app downloads (admin populates ./data/downloads/)
+	downloadsDir := filepath.Join(filepath.Dir(cfg.AvatarDir), "downloads")
+	r.Handle("/downloads/*", http.StripPrefix("/downloads/", http.FileServer(http.Dir(downloadsDir))))
+
+	// desktop app availability (public — used by the connect UI)
+	r.Get("/api/downloads", func(w http.ResponseWriter, r *http.Request) {
+		available := map[string]bool{}
+		for _, name := range []string{
+			"conclave-presence-windows-x64.exe",
+			"conclave-presence-macos-x64.dmg",
+			"conclave-presence-macos-arm64.dmg",
+			"conclave-presence-linux-x64.AppImage",
+		} {
+			_, err := os.Stat(filepath.Join(downloadsDir, name))
+			available[name] = err == nil
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(available)
+	})
+
 	r.Group(func(r chi.Router) {
 		r.Use(apimiddleware.Auth(authSvc, pool))
 

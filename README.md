@@ -315,19 +315,31 @@ The optional presence companion is a small system-tray app that detects which ga
 
 **Install**
 
-Download the latest release for your platform from the [Releases page](https://github.com/kghunt/conclave/releases) (look for `desktop-v*` tags).
+Conclave serves the desktop app directly — no GitHub account needed. Go to **Edit Profile → Desktop Presence App** and click the download button for your platform. The button only appears once an admin has placed the binaries on the server (see below).
 
 **Connect**
 
-1. In Conclave, click your name/avatar in the bottom-left → **Edit Profile**
-2. Scroll to **Desktop Presence App** → click **Connect installed app**
-3. The browser opens a `conclave://` deep link that configures the app automatically
+1. Download and install the app from Edit Profile
+2. Click **Connect installed app** — the browser opens a `conclave://` deep link that configures the app automatically
 
 **How it works**
 
 - Scans running processes every 30 seconds against a list of known game executables
 - Reports the current game (or clears it when no game is running) to your Conclave instance via a Bearer token — no passwords stored
 - The token can be revoked at any time from Edit Profile → **Disconnect**
+
+**Hosting the downloads on your instance**
+
+Each release tag (`desktop-v*`) triggers a GitHub Actions build that produces canonically-named files and attaches them to the release. Copy the files for your platform(s) into `./data/downloads/` on your server:
+
+| File | Platform |
+|---|---|
+| `conclave-presence-windows-x64.exe` | Windows |
+| `conclave-presence-macos-x64.dmg` | macOS (Intel) |
+| `conclave-presence-macos-arm64.dmg` | macOS (Apple Silicon) |
+| `conclave-presence-linux-x64.AppImage` | Linux |
+
+Conclave serves them from `/downloads/` and the Edit Profile page automatically shows a download button for the user's detected platform.
 
 **Build from source**
 
