@@ -22,6 +22,12 @@
 	let presenceCopied = $state(false);
 	let downloads = $state<Record<string, boolean>>({});
 
+	const availableDownloads = $derived(() => {
+		const platform = detectPlatform();
+		const files = platformFiles[platform] ?? [];
+		return files.filter(f => downloads[f.file]);
+	});
+
 	function detectPlatform(): 'windows' | 'macos-arm64' | 'macos-x64' | 'linux' {
 		const ua = navigator.userAgent;
 		if (/Win/.test(ua)) return 'windows';
@@ -215,42 +221,33 @@
 					<span class="presence-status connected">● Connected</span>
 					<button class="presence-btn danger" onclick={disconnectPresenceApp}>Disconnect</button>
 				</div>
-			{:else if presenceHasToken}
-				{#if presenceDeepLink}
-					<p class="presence-hint-bold">Click the link below to open the app. If nothing happens, copy it and paste it into your browser's address bar.</p>
+			{:else}
+				{#if availableDownloads().length > 0}
+					<div class="presence-row">
+						{#each availableDownloads() as dl}
+							<a class="presence-btn" href="/downloads/{dl.file}" download>{dl.label} ↓</a>
+						{/each}
+					</div>
+				{:else}
+					<p class="presence-hint">No download hosted on this instance yet — ask your admin.</p>
+				{/if}
+				{#if presenceHasToken && presenceDeepLink}
+					<p class="presence-hint-bold">Click below to open the app, or copy and paste into your address bar.</p>
 					<div class="presence-deeplink-row">
 						<a class="presence-deeplink" href={presenceDeepLink}>Open Conclave Presence app</a>
 						<button class="presence-btn" onclick={copyDeepLink}>{presenceCopied ? 'Copied!' : 'Copy link'}</button>
 					</div>
 				{/if}
 				<div class="presence-row">
-					<span class="presence-status waiting">⏳ Waiting for app…</span>
-					<button class="presence-btn danger" onclick={disconnectPresenceApp}>Revoke token</button>
+					{#if presenceHasToken}
+						<span class="presence-status waiting">⏳ Waiting for app…</span>
+						<button class="presence-btn danger" onclick={disconnectPresenceApp}>Revoke token</button>
+					{:else}
+						<button class="presence-btn primary" onclick={connectPresenceApp} disabled={presenceLinking}>
+							{presenceLinking ? 'Opening…' : 'Connect installed app'}
+						</button>
+					{/if}
 				</div>
-				{#if !presenceDeepLink}
-					<p class="presence-hint">Open the Conclave presence app on your computer to finish connecting.</p>
-				{/if}
-			{:else}
-				{@const platform = detectPlatform()}
-				{@const files = platformFiles[platform]}
-				{@const available = files.filter(f => downloads[f.file])}
-				{#if available.length > 0}
-					<div class="presence-row">
-						{#each available as dl}
-							<a class="presence-btn" href="/downloads/{dl.file}" download>{dl.label} ↓</a>
-						{/each}
-						<button class="presence-btn primary" onclick={connectPresenceApp} disabled={presenceLinking}>
-							{presenceLinking ? 'Opening…' : 'Connect installed app'}
-						</button>
-					</div>
-				{:else}
-					<div class="presence-row">
-						<button class="presence-btn primary" onclick={connectPresenceApp} disabled={presenceLinking}>
-							{presenceLinking ? 'Opening…' : 'Connect installed app'}
-						</button>
-					</div>
-					<p class="presence-hint">No download is hosted on this instance yet. Ask your admin, or build from source.</p>
-				{/if}
 			{/if}
 		</div>
 
