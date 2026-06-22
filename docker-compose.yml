@@ -43,6 +43,7 @@ services:
       AVATAR_DIR: /data/avatars
     volumes:
       - ./data/media:/data/avatars
+      - ./data/downloads:/data/downloads
     depends_on:
       postgres:
         condition: service_healthy

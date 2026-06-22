@@ -38,6 +38,7 @@ services:
       - "${PORT:-8080}:8080"
     volumes:
       - ./data/media:/data/avatars
+      - ./data/downloads:/data/downloads
     depends_on:
       postgres:
         condition: service_healthy
