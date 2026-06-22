@@ -54,6 +54,7 @@ func main() {
 	channelsH := handlers.NewChannels(pool, hub)
 	threadsH := handlers.NewThreads(pool, hub)
 	pushH := handlers.NewPush(pool, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDEmail)
+	presenceH := handlers.NewPresence(pool, hub)
 	friendsH := handlers.NewFriends(pool, hub)
 	messagesH := handlers.NewMessages(pool, hub, pushH, cfg.AvatarDir, cfg.BaseURL)
 	dmsH := handlers.NewDMs(pool, hub, pushH, cfg.AvatarDir, cfg.BaseURL)
@@ -61,6 +62,7 @@ func main() {
 	wsH := handlers.NewWS(hub, authSvc, pool, cfg.BaseURL, cfg.FrontendURL)
 	voiceH := handlers.NewVoice(pool, cfg.LiveKitURL, cfg.LiveKitKey, cfg.LiveKitSecret)
 	go wsH.RunPresenceBroadcaster()
+	go wsH.RunGameStatusBroadcaster()
 
 	r := chi.NewRouter()
 	r.Use(chimiddleware.Logger)
@@ -84,6 +86,7 @@ func main() {
 	r.Post("/api/auth/logout", authH.Logout)
 	r.Post("/api/auth/register", authH.Register)
 	r.Post("/api/auth/local-login", authH.LocalLogin)
+	r.Post("/api/presence/heartbeat", presenceH.Heartbeat) // Bearer token, no cookie auth
 	r.Get("/api/invites/{code}", serversH.GetInvite)
 
 	// websocket
@@ -195,6 +198,11 @@ func main() {
 
 		// user-accessible registration invite (rate-limited, 1-use/1-day)
 		r.Post("/api/registration-invite", adminH.GenerateUserInvite)
+
+		// desktop presence companion
+		r.Post("/api/presence/token", presenceH.GenerateToken)
+		r.Delete("/api/presence/token", presenceH.RevokeToken)
+		r.Get("/api/presence/token", presenceH.HasToken)
 
 		// instance admin
 		r.Get("/api/admin/settings", adminH.GetSettings)

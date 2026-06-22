@@ -16,6 +16,7 @@ export type WSEvent =
 	| { type: 'mention.new'; payload: import('./api').Message }
 	| { type: 'typing'; payload: { user_id: string; display_name: string; room: string } }
 	| { type: 'presence.update'; payload: { user_id: string; status: string } }
+	| { type: 'presence.game'; payload: { user_id: string; game: string } }
 	| { type: 'member.kicked'; payload: { server_id: string } }
 	| { type: 'member.banned'; payload: { server_id: string } }
 	| { type: 'join_request.new'; payload: { request_id: string; server_id: string; user: import('./api').User } }

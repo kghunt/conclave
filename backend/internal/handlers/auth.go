@@ -196,8 +196,15 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If no users exist yet this is the first registration (the admin bootstrapping
+	// the instance). Allow it regardless of registration mode so the admin can log
+	// in, gain their role, and then configure everything else.
+	var userCount int
+	h.db.QueryRow(ctx, `SELECT COUNT(*) FROM users`).Scan(&userCount)
+	firstUser := userCount == 0
+
 	var inviteID string
-	if regMode == "invite" {
+	if regMode == "invite" && !firstUser {
 		if body.InviteCode == "" {
 			writeErr(w, http.StatusBadRequest, "An invite code is required to register")
 			return

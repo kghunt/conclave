@@ -24,3 +24,11 @@ Thumbs.db
 
 # Temp downloads
 *.tar.gz
+
+# Screenshots
+screenshots/
+
+# Desktop app build artifacts
+desktop/node_modules/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/

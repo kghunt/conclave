@@ -10,7 +10,13 @@
 	let pushSubscribed = $state(false);
 	let pushToggling = $state(false);
 
-	onMount(() => {
+	// Desktop presence companion
+	let showPresencePanel = $state(false);
+	let presenceConnected = $state(false);
+	let presenceLinking = $state(false);
+
+	onMount(async () => {
+		try { presenceConnected = (await api.getPresenceTokenStatus()).connected; } catch { /* ignore */ }
 		pushSupported = 'PushManager' in window && 'serviceWorker' in navigator;
 		if (!pushSupported) return;
 		navigator.serviceWorker.ready.then((reg) => {
@@ -53,6 +59,23 @@
 		finally { pushToggling = false; }
 	}
 
+	async function connectPresenceApp() {
+		presenceLinking = true;
+		try {
+			const { token } = await api.generatePresenceToken();
+			const url = `conclave://connect?instance=${encodeURIComponent(location.origin)}&token=${encodeURIComponent(token)}`;
+			location.href = url;
+			presenceConnected = true;
+		} catch { /* ignore */ } finally {
+			presenceLinking = false;
+		}
+	}
+
+	async function disconnectPresenceApp() {
+		await api.revokePresenceToken();
+		presenceConnected = false;
+	}
+
 	async function logout() {
 		await api.logout();
 		location.href = '/login';
@@ -75,12 +98,48 @@
 				{/if}
 			</button>
 		{/if}
+		<button
+			class="icon-bar-btn"
+			class:active={presenceConnected}
+			onclick={() => (showPresencePanel = !showPresencePanel)}
+			title={presenceConnected ? 'Desktop presence connected' : 'Connect desktop presence app'}
+		>
+			<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+				<path d="M21 2H3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7l-2 3v1h8v-1l-2-3h7a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm0 14H3V4h18v12z"/>
+			</svg>
+		</button>
 		{#if $currentUser?.is_instance_admin}
 			<button class="admin-btn" onclick={() => (showAdmin = true)} title="Instance admin">⚙</button>
 		{/if}
 		<button class="logout-btn" onclick={logout} title="Logout">⏻</button>
 	{/if}
 </div>
+
+{#if showPresencePanel}
+	<div class="presence-panel">
+		<div class="presence-panel-header">
+			<span>Desktop Presence App</span>
+			<button class="close-btn" onclick={() => (showPresencePanel = false)}>✕</button>
+		</div>
+		<p class="presence-desc">
+			The Conclave presence app runs in your system tray, detects which game you're playing,
+			and shows your status to other members automatically.
+		</p>
+		{#if presenceConnected}
+			<p class="presence-status connected">● Connected</p>
+			<button class="presence-btn danger" onclick={disconnectPresenceApp}>Disconnect</button>
+		{:else}
+			<p class="presence-status">Not connected</p>
+			<a class="presence-btn" href="https://github.com/karl/conclave/releases" target="_blank" rel="noopener">
+				Download app ↗
+			</a>
+			<button class="presence-btn primary" onclick={connectPresenceApp} disabled={presenceLinking}>
+				{presenceLinking ? 'Opening…' : 'Connect installed app'}
+			</button>
+			<p class="presence-hint">Opens the app and configures it automatically via a deep link.</p>
+		{/if}
+	</div>
+{/if}
 
 {#if showAdmin}
 	<AdminPanel onclose={() => (showAdmin = false)} />
@@ -94,6 +153,7 @@
 		padding: 0.625rem 0.75rem;
 		background: #0e0e10;
 		flex-shrink: 0;
+		position: relative;
 	}
 	.user-info {
 		display: flex;
@@ -151,4 +211,77 @@
 		opacity: 0.8;
 	}
 	.admin-btn:hover { opacity: 1; background: rgba(232,84,30,0.15); }
+	.presence-panel {
+		position: absolute;
+		bottom: calc(100% + 8px);
+		left: 0.5rem;
+		width: 280px;
+		background: var(--bg-panel);
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		padding: 0.875rem 1rem;
+		box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+		z-index: 400;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+	.presence-panel-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		font-size: 0.8rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--text-muted);
+	}
+	.close-btn {
+		background: none;
+		border: none;
+		color: var(--text-muted);
+		cursor: pointer;
+		font-size: 0.75rem;
+		padding: 0.1rem 0.25rem;
+	}
+	.close-btn:hover { color: var(--text); }
+	.presence-desc {
+		font-size: 0.8rem;
+		color: var(--text-muted);
+		margin: 0;
+		line-height: 1.45;
+	}
+	.presence-status {
+		font-size: 0.8rem;
+		color: var(--text-muted);
+		margin: 0;
+	}
+	.presence-status.connected { color: #44c97d; }
+	.presence-btn {
+		display: block;
+		width: 100%;
+		padding: 0.45rem 0.75rem;
+		border-radius: 6px;
+		font-size: 0.85rem;
+		font-weight: 500;
+		cursor: pointer;
+		text-align: center;
+		text-decoration: none;
+		border: 1px solid var(--border);
+		background: rgba(255,255,255,0.06);
+		color: var(--text);
+		font-family: inherit;
+		transition: background 0.15s;
+	}
+	.presence-btn:hover:not(:disabled) { background: rgba(255,255,255,0.1); }
+	.presence-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+	.presence-btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+	.presence-btn.primary:hover:not(:disabled) { opacity: 0.9; }
+	.presence-btn.danger { border-color: #e04545; color: #e04545; background: rgba(224,69,69,0.08); }
+	.presence-btn.danger:hover { background: rgba(224,69,69,0.15); }
+	.presence-hint {
+		font-size: 0.72rem;
+		color: var(--text-muted);
+		margin: 0;
+	}
 </style>
