@@ -18,12 +18,36 @@
 	let presenceHasToken = $state(false);
 	let presenceActive = $state(false);
 	let presenceLinking = $state(false);
+	let downloads = $state<Record<string, boolean>>({});
+
+	function detectPlatform(): 'windows' | 'macos-arm64' | 'macos-x64' | 'linux' {
+		const ua = navigator.userAgent;
+		if (/Win/.test(ua)) return 'windows';
+		if (/Mac/.test(ua)) {
+			// Apple Silicon Macs report arm in some browsers
+			// @ts-ignore
+			if (navigator.userAgentData?.architecture === 'arm' || /arm/.test(ua)) return 'macos-arm64';
+			return 'macos-x64';
+		}
+		return 'linux';
+	}
+
+	const platformFiles: Record<string, { file: string; label: string }[]> = {
+		windows:      [{ file: 'conclave-presence-windows-x64.exe', label: 'Windows (x64)' }],
+		'macos-arm64':[{ file: 'conclave-presence-macos-arm64.dmg', label: 'macOS (Apple Silicon)' }, { file: 'conclave-presence-macos-x64.dmg', label: 'macOS (Intel)' }],
+		'macos-x64':  [{ file: 'conclave-presence-macos-x64.dmg',   label: 'macOS (Intel)' },          { file: 'conclave-presence-macos-arm64.dmg', label: 'macOS (Apple Silicon)' }],
+		linux:        [{ file: 'conclave-presence-linux-x64.AppImage', label: 'Linux (x64 AppImage)' }],
+	};
 
 	onMount(async () => {
 		try {
 			const s = await api.getPresenceTokenStatus();
 			presenceHasToken = s.has_token;
 			presenceActive = s.active;
+		} catch { /* ignore */ }
+		try {
+			const res = await fetch('/api/downloads');
+			if (res.ok) downloads = await res.json();
 		} catch { /* ignore */ }
 	});
 
@@ -190,12 +214,26 @@
 				</div>
 				<p class="presence-hint">Open the Conclave presence app on your computer to finish connecting.</p>
 			{:else}
-				<div class="presence-row">
-					<a class="presence-btn" href="https://github.com/kghunt/conclave/releases" target="_blank" rel="noopener noreferrer">Download app ↗</a>
-					<button class="presence-btn primary" onclick={connectPresenceApp} disabled={presenceLinking}>
-						{presenceLinking ? 'Opening…' : 'Connect installed app'}
-					</button>
-				</div>
+				{@const platform = detectPlatform()}
+				{@const files = platformFiles[platform]}
+				{@const available = files.filter(f => downloads[f.file])}
+				{#if available.length > 0}
+					<div class="presence-row">
+						{#each available as dl}
+							<a class="presence-btn" href="/downloads/{dl.file}" download>{dl.label} ↓</a>
+						{/each}
+						<button class="presence-btn primary" onclick={connectPresenceApp} disabled={presenceLinking}>
+							{presenceLinking ? 'Opening…' : 'Connect installed app'}
+						</button>
+					</div>
+				{:else}
+					<div class="presence-row">
+						<button class="presence-btn primary" onclick={connectPresenceApp} disabled={presenceLinking}>
+							{presenceLinking ? 'Opening…' : 'Connect installed app'}
+						</button>
+					</div>
+					<p class="presence-hint">No download is hosted on this instance yet. Ask your admin, or build from source.</p>
+				{/if}
 			{/if}
 		</div>
 

@@ -12,12 +12,20 @@ jobs:
         include:
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+            asset_name: conclave-presence-linux-x64.AppImage
+            bundle_glob: "desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage"
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            asset_name: conclave-presence-windows-x64.exe
+            bundle_glob: "desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe"
           - os: macos-latest
             target: x86_64-apple-darwin
+            asset_name: conclave-presence-macos-x64.dmg
+            bundle_glob: "desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg"
           - os: macos-latest
             target: aarch64-apple-darwin
+            asset_name: conclave-presence-macos-arm64.dmg
+            bundle_glob: "desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg"
 
     runs-on: ${{ matrix.os }}
 
@@ -45,7 +53,8 @@ jobs:
       - run: npm install
         working-directory: desktop
 
-      - uses: tauri-apps/tauri-action@v0
+      - name: Build
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -54,5 +63,19 @@ jobs:
           projectPath: desktop
           tagName: ${{ github.ref_name }}
           releaseName: 'Conclave Presence ${{ github.ref_name }}'
-          releaseBody: 'Desktop presence companion app for Conclave.'
+          releaseBody: |
+            Desktop presence companion for Conclave.
+
+            **Self-hosting:** copy the file for your platform into `./data/downloads/` on your server
+            and Conclave will serve it directly to your users from Edit Profile.
           args: --target ${{ matrix.target }}
+
+      # Rename to the canonical filename Conclave expects, then attach to the release.
+      - name: Rename and upload asset
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          src=$(ls ${{ matrix.bundle_glob }} | head -1)
+          cp "$src" "${{ matrix.asset_name }}"
+          gh release upload ${{ github.ref_name }} "${{ matrix.asset_name }}" --clobber
