@@ -307,7 +307,7 @@ func (h *AdminHandler) CreateRegistrationInvite(w http.ResponseWriter, r *http.R
 	if body.ExpiresInDays != nil && *body.ExpiresInDays > 0 {
 		err := h.db.QueryRow(r.Context(), `
 			INSERT INTO registration_invites (code, created_by, max_uses, expires_at)
-			VALUES ($1, $2, $3, NOW() + ($4 || ' days')::interval)
+			VALUES ($1, $2, $3, NOW() + make_interval(days => $4))
 			RETURNING id, code, max_uses, use_count, expires_at::text, created_at::text
 		`, code, middleware.UserID(r), body.MaxUses, *body.ExpiresInDays).Scan(
 			&inv.ID, &inv.Code, &inv.MaxUses, &inv.UseCount, &expiresAt, &inv.CreatedAt,
