@@ -180,6 +180,11 @@ export const api = {
 	generateRegistrationInvite: () =>
 		req<RegistrationInvite>('POST', '/registration-invite'),
 
+	// desktop presence companion
+	getPresenceTokenStatus: () => req<{ connected: boolean }>('GET', '/presence/token'),
+	generatePresenceToken: () => req<{ token: string }>('POST', '/presence/token'),
+	revokePresenceToken: () => req<void>('DELETE', '/presence/token'),
+
 	// instance admin
 	getAdminSettings: () => req<AdminSettings>('GET', '/admin/settings'),
 	updateAdminSettings: (data: Partial<AdminSettings>) => req<void>('PATCH', '/admin/settings', data),

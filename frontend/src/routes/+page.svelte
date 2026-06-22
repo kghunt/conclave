@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api, type Message, type DirectMessage, type MessageReply, type Thread, type Reaction } from '$lib/api';
 	import { socket } from '$lib/socket';
-	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent, instanceConfig, serverMembers, mentionedChannels, presenceMap, notifPrefs, serverUnread, homeMode, pendingJoinRequests } from '$lib/stores';
+	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent, instanceConfig, serverMembers, mentionedChannels, presenceMap, gameStatus, notifPrefs, serverUnread, homeMode, pendingJoinRequests } from '$lib/stores';
 	import { playMessageSound, playMentionSound, playDMSound } from '$lib/sounds';
 	import { handleIncomingCall, handleCallAccepted, handleCallDeclined, handleCallEnded, handleCallCancelled } from '$lib/voice';
 	import CallNotification from '$lib/components/CallNotification.svelte';
@@ -140,6 +140,13 @@
 		const unsub = socket.on((event) => {
 			if (event.type === 'presence.update') {
 				presenceMap.update(m => ({ ...m, [event.payload.user_id]: event.payload.status }));
+			} else if (event.type === 'presence.game') {
+				gameStatus.update(m => {
+					const next = { ...m };
+					if (event.payload.game) next[event.payload.user_id] = event.payload.game;
+					else delete next[event.payload.user_id];
+					return next;
+				});
 			}
 		});
 		return () => { unsub(); socket.unsubscribe(room); };

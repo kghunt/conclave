@@ -272,6 +272,30 @@ func (h *WSHandler) broadcastPresence(userID, status string) {
 	}
 }
 
+func (h *WSHandler) RunGameStatusBroadcaster() {
+	for change := range h.hub.GameStatusChanges {
+		h.broadcastGameStatus(change.UserID, change.Game)
+	}
+}
+
+func (h *WSHandler) broadcastGameStatus(userID, game string) {
+	rows, err := h.db.Query(context.Background(),
+		`SELECT server_id FROM server_members WHERE user_id = $1`, userID)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	payload, _ := json.Marshal(map[string]string{"user_id": userID, "game": game})
+	evt := ws.Event{Type: "presence.game", Payload: payload}
+	for rows.Next() {
+		var serverID string
+		rows.Scan(&serverID)
+		h.hub.Broadcast("server:"+serverID, evt)
+	}
+	// Also send to the user's own room so their own tab sees it.
+	h.hub.Broadcast("user:"+userID, evt)
+}
+
 func (h *WSHandler) canSubscribe(userID, room string) bool {
 	ctx := context.Background()
 	if strings.HasPrefix(room, "channel:") {

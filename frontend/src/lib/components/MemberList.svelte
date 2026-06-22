@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api, type ServerMember, type JoinRequest, type SpaceRole } from '$lib/api';
-	import { activeServer, currentUser, activeDM, activeChannel, dmConversations, friends, pendingJoinRequests } from '$lib/stores';
+	import { activeServer, currentUser, activeDM, activeChannel, dmConversations, friends, pendingJoinRequests, gameStatus } from '$lib/stores';
 	import { socket } from '$lib/socket';
 	import Avatar from './Avatar.svelte';
 
@@ -200,6 +200,9 @@
 				<Avatar url={m.user.avatar_url} name={m.user.display_name} userId={m.user.id} size={32} showPresence />
 				<div class="member-info">
 					<span class="member-name">{m.user.display_name}</span>
+					{#if $gameStatus[m.user.id]}
+						<span class="game-status">🎮 {$gameStatus[m.user.id]}</span>
+					{/if}
 					<div class="member-badges">
 						<span class="role-badge role-{m.role}">
 							{m.role === 'owner' ? '👑 Owner' : m.role === 'admin' ? '⚡ Admin' : 'Member'}
@@ -340,6 +343,13 @@
 	.member-name {
 		font-size: 0.875rem;
 		color: var(--text);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.game-status {
+		font-size: 0.72rem;
+		color: var(--text-muted);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;

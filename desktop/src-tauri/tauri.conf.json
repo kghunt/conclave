@@ -1,0 +1,41 @@
+{
+  "productName": "conclave-presence",
+  "version": "0.1.0",
+  "identifier": "com.conclave.presence",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Conclave Presence",
+        "width": 400,
+        "height": 500,
+        "resizable": false,
+        "visible": false
+      }
+    ],
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true
+    },
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png"],
+    "category": "Utility",
+    "shortDescription": "Shows your gaming status on Conclave",
+    "longDescription": "Runs in the system tray, detects running games, and reports your status to your Conclave server.",
+    "deepLinkProtocols": [
+      {
+        "schemes": ["conclave"],
+        "role": "Editor"
+      }
+    ]
+  }
+}

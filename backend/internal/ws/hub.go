@@ -34,6 +34,16 @@ type PresenceChange struct {
 	Status string // "online" | "away" | "offline"
 }
 
+type GameStatusChange struct {
+	UserID string
+	Game   string
+}
+
+type gameStatusEntry struct {
+	game      string
+	updatedAt time.Time
+}
+
 type Hub struct {
 	clients    map[*Client]bool
 	rooms      map[string]map[*Client]bool
@@ -46,6 +56,10 @@ type Hub struct {
 	userPresence    map[string]string
 	PresenceChanges chan PresenceChange
 
+	gameStatus        map[string]gameStatusEntry
+	gameStatusMu      sync.RWMutex
+	GameStatusChanges chan GameStatusChange
+
 	voiceRooms     map[string]map[string]*Client // channelID → userID → *Client
 	voiceServerMap map[string]string             // channelID → serverID
 	voiceMu        sync.RWMutex
@@ -57,18 +71,66 @@ type roomMessage struct {
 }
 
 func NewHub() *Hub {
-	return &Hub{
-		clients:         make(map[*Client]bool),
-		rooms:           make(map[string]map[*Client]bool),
-		register:        make(chan *Client, 64),
-		unregister:      make(chan *Client, 64),
-		broadcast:       make(chan roomMessage, 512),
-		userConns:       make(map[string]int),
-		userPresence:    make(map[string]string),
-		PresenceChanges: make(chan PresenceChange, 256),
-		voiceRooms:      make(map[string]map[string]*Client),
-		voiceServerMap:  make(map[string]string),
+	h := &Hub{
+		clients:           make(map[*Client]bool),
+		rooms:             make(map[string]map[*Client]bool),
+		register:          make(chan *Client, 64),
+		unregister:        make(chan *Client, 64),
+		broadcast:         make(chan roomMessage, 512),
+		userConns:         make(map[string]int),
+		userPresence:      make(map[string]string),
+		PresenceChanges:   make(chan PresenceChange, 256),
+		gameStatus:        make(map[string]gameStatusEntry),
+		GameStatusChanges: make(chan GameStatusChange, 256),
+		voiceRooms:        make(map[string]map[string]*Client),
+		voiceServerMap:    make(map[string]string),
 	}
+	go h.runGameStatusCleaner()
+	return h
+}
+
+// runGameStatusCleaner clears statuses with no heartbeat in 90 seconds.
+func (h *Hub) runGameStatusCleaner() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		h.gameStatusMu.Lock()
+		now := time.Now()
+		for userID, entry := range h.gameStatus {
+			if now.Sub(entry.updatedAt) > 90*time.Second {
+				delete(h.gameStatus, userID)
+				select {
+				case h.GameStatusChanges <- GameStatusChange{UserID: userID, Game: ""}:
+				default:
+				}
+			}
+		}
+		h.gameStatusMu.Unlock()
+	}
+}
+
+func (h *Hub) SetGameStatus(userID, game string) {
+	h.gameStatusMu.Lock()
+	if game == "" {
+		delete(h.gameStatus, userID)
+	} else {
+		h.gameStatus[userID] = gameStatusEntry{game: game, updatedAt: time.Now()}
+	}
+	h.gameStatusMu.Unlock()
+	select {
+	case h.GameStatusChanges <- GameStatusChange{UserID: userID, Game: game}:
+	default:
+	}
+}
+
+func (h *Hub) GetAllGameStatuses() map[string]string {
+	h.gameStatusMu.RLock()
+	defer h.gameStatusMu.RUnlock()
+	out := make(map[string]string, len(h.gameStatus))
+	for uid, e := range h.gameStatus {
+		out[uid] = e.game
+	}
+	return out
 }
 
 func (h *Hub) Run() {
@@ -111,9 +173,20 @@ func (h *Hub) Run() {
 				case h.PresenceChanges <- PresenceChange{c.userID, "offline"}:
 				default:
 				}
+				// Clear game status when the user goes fully offline.
+				h.gameStatusMu.Lock()
+				if _, had := h.gameStatus[c.userID]; had {
+					delete(h.gameStatus, c.userID)
+					h.gameStatusMu.Unlock()
+					select {
+					case h.GameStatusChanges <- GameStatusChange{UserID: c.userID, Game: ""}:
+					default:
+					}
+				} else {
+					h.gameStatusMu.Unlock()
+				}
 			}
 
-			// Clean up voice rooms on disconnect and broadcast voice.left to both channel and server rooms.
 			h.voiceMu.Lock()
 			type leftRoom struct{ channelID, serverID string }
 			var leftRooms []leftRoom
@@ -284,8 +357,6 @@ func (c *Client) HasRoom(room string) bool {
 	return c.rooms[room]
 }
 
-// VoiceJoin adds a client to a voice room and returns the existing peers' userIDs.
-// serverID is cached so ungraceful disconnects can broadcast to the server room too.
 func (h *Hub) VoiceJoin(channelID, serverID string, c *Client) []string {
 	h.voiceMu.Lock()
 	defer h.voiceMu.Unlock()
@@ -303,7 +374,6 @@ func (h *Hub) VoiceJoin(channelID, serverID string, c *Client) []string {
 	return existing
 }
 
-// VoiceLeave removes a client from a voice room.
 func (h *Hub) VoiceLeave(channelID string, c *Client) {
 	h.voiceMu.Lock()
 	defer h.voiceMu.Unlock()
@@ -316,7 +386,6 @@ func (h *Hub) VoiceLeave(channelID string, c *Client) {
 	}
 }
 
-// VoicePeers returns a snapshot of userIDs currently in a voice channel.
 func (h *Hub) VoicePeers(channelID string) []string {
 	h.voiceMu.RLock()
 	defer h.voiceMu.RUnlock()
@@ -328,7 +397,6 @@ func (h *Hub) VoicePeers(channelID string) []string {
 	return out
 }
 
-// VoiceAllPeers returns a snapshot of all voice rooms: channelID → []userID.
 func (h *Hub) VoiceAllPeers() map[string][]string {
 	h.voiceMu.RLock()
 	defer h.voiceMu.RUnlock()
@@ -343,7 +411,6 @@ func (h *Hub) VoiceAllPeers() map[string][]string {
 	return out
 }
 
-// VoiceSendTo delivers a raw message directly to a specific user in a voice channel.
 func (h *Hub) VoiceSendTo(channelID, toUserID string, data []byte) bool {
 	h.voiceMu.RLock()
 	c, ok := h.voiceRooms[channelID][toUserID]
@@ -360,7 +427,6 @@ func (h *Hub) VoiceSendTo(channelID, toUserID string, data []byte) bool {
 	}
 }
 
-// BroadcastExcept sends to all clients in a room except the given one.
 func (h *Hub) BroadcastExcept(room string, exclude *Client, event Event) {
 	data, err := json.Marshal(event)
 	if err != nil {

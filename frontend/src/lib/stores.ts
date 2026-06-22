@@ -44,3 +44,4 @@ export const pendingJoinRequests = writable<import('./api').JoinRequest[]>([]); 
 export const voiceParticipants = writable<Record<string, VoicePeer[]>>({}); // channelId → current voice participants
 export const serverUnread = writable<Record<string, boolean>>({}); // serverId → has unread
 export const homeMode = writable(false); // true when viewing DMs/Friends panel
+export const gameStatus = writable<Record<string, string>>({}); // userId → game name
