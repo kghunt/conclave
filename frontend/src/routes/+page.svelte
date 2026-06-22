@@ -38,6 +38,11 @@
 		}
 		window.addEventListener('popstate', handlePopState);
 
+		// Read saved navigation state synchronously before any $effect can overwrite it
+		const savedMode = localStorage.getItem('lastMode');
+		const savedDMId = localStorage.getItem('lastDMId');
+		const savedServerId = localStorage.getItem('lastServerId');
+
 		(async () => {
 			const [s, convs, fr, reqs, sent, cfg] = await Promise.all([
 				api.listServers(),
@@ -55,18 +60,15 @@
 			instanceConfig.set(cfg);
 
 			// Restore last view: home (DMs) or server+channel
-			const lastMode = localStorage.getItem('lastMode');
-			if (lastMode === 'home') {
+			if (savedMode === 'home') {
 				homeMode.set(true);
-				const lastDMId = localStorage.getItem('lastDMId');
-				if (lastDMId) {
-					const dm = (convs ?? []).find((c) => c.id === lastDMId);
+				if (savedDMId) {
+					const dm = (convs ?? []).find((c) => c.id === savedDMId);
 					if (dm) activeDM.set(dm);
 				}
 			} else {
-				const lastServerId = localStorage.getItem('lastServerId');
-				if (lastServerId) {
-					const match = (s ?? []).find((sv) => sv.id === lastServerId);
+				if (savedServerId) {
+					const match = (s ?? []).find((sv) => sv.id === savedServerId);
 					if (match) activeServer.set(match);
 					else if ((s ?? []).length > 0) activeServer.set(s[0]);
 				}
