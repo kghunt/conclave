@@ -27,6 +27,7 @@ func (h *DMsHandler) ListConversations(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r)
 	rows, err := h.db.Query(r.Context(), `
 		SELECT dc.id, dc.created_at,
+		       GREATEST(MAX(dm.created_at), dc.created_at) AS last_message_at,
 		       u.id, u.display_name, u.bio, u.avatar_url,
 		       COUNT(dm.id) FILTER (
 		           WHERE dm.sender_id != $1
@@ -37,7 +38,7 @@ func (h *DMsHandler) ListConversations(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN direct_messages dm ON dm.conversation_id = dc.id
 		WHERE dc.user1_id = $1 OR dc.user2_id = $1
 		GROUP BY dc.id, dc.created_at, u.id, u.display_name, u.bio, u.avatar_url, dc.user1_read_at, dc.user2_read_at
-		ORDER BY dc.created_at DESC
+		ORDER BY last_message_at DESC
 	`, userID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "query failed")
@@ -49,7 +50,7 @@ func (h *DMsHandler) ListConversations(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var c models.DMConversation
 		c.OtherUser = &models.User{}
-		if err := rows.Scan(&c.ID, &c.CreatedAt, &c.OtherUser.ID, &c.OtherUser.DisplayName, &c.OtherUser.Bio, &c.OtherUser.AvatarURL, &c.UnreadCount); err != nil {
+		if err := rows.Scan(&c.ID, &c.CreatedAt, &c.LastMessageAt, &c.OtherUser.ID, &c.OtherUser.DisplayName, &c.OtherUser.Bio, &c.OtherUser.AvatarURL, &c.UnreadCount); err != nil {
 			continue
 		}
 		convs = append(convs, c)

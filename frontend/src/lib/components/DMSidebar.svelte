@@ -7,6 +7,7 @@
 
 	let showAddFriend = $state(false);
 	let friendSearch = $state('');
+	let filterQuery = $state('');
 	let searchResults = $state<User[]>([]);
 	let searchDebounce: ReturnType<typeof setTimeout>;
 	let pendingRequests = $state<Record<string, 'sending' | 'sent' | 'error'>>({});
@@ -55,7 +56,13 @@
 		friendRequestsSent.update((s) => s.filter((r) => r.user.id !== userId));
 	}
 
-	async function messageFriend(userId: string) {
+	async function openDM(userId: string) {
+		const existing = $dmConversations.find((c) => c.other_user.id === userId);
+		if (existing) {
+			activeChannel.set(null);
+			activeDM.set(existing);
+			return;
+		}
 		const conv = await api.getOrCreateDM(userId);
 		dmConversations.update((prev) => {
 			if (prev.find((c) => c.id === conv.id)) return prev;
@@ -64,33 +71,27 @@
 		activeChannel.set(null);
 		activeDM.set(conv);
 	}
+
+	const sortedFriends = $derived((() => {
+		const convByUser = new Map($dmConversations.map((c) => [c.other_user.id, c]));
+		const filtered = filterQuery
+			? $friends.filter((f) => f.user.display_name.toLowerCase().includes(filterQuery.toLowerCase()))
+			: $friends;
+		return [...filtered].sort((a, b) => {
+			const ca = convByUser.get(a.user.id);
+			const cb = convByUser.get(b.user.id);
+			if (ca && cb) return new Date(cb.last_message_at).getTime() - new Date(ca.last_message_at).getTime();
+			if (ca) return -1;
+			if (cb) return 1;
+			return a.user.display_name.localeCompare(b.user.display_name);
+		});
+	})());
 </script>
 
 <aside class="sidebar">
 <div class="sidebar-scroll">
 
 	<div class="server-header">Messages &amp; Friends</div>
-
-	<div class="section-label">Direct Messages</div>
-	{#each $dmConversations as conv}
-		<button
-			class="channel-item"
-			class:active={$activeDM?.id === conv.id}
-			class:has-unread={conv.unread_count > 0 && $activeDM?.id !== conv.id}
-			onclick={() => { activeChannel.set(null); activeDM.set(conv); }}
-		>
-			<Avatar url={conv.other_user.avatar_url} name={conv.other_user.display_name} userId={conv.other_user.id} size={20} showPresence />
-			<span class="dm-name">{conv.other_user.display_name}</span>
-			{#if conv.unread_count > 0 && $activeDM?.id !== conv.id}
-				<span class="badge">{conv.unread_count}</span>
-			{/if}
-		</button>
-	{/each}
-	{#if $dmConversations.length === 0}
-		<p class="empty-hint">No conversations yet. Message a friend to get started.</p>
-	{/if}
-
-	<div class="section-divider"></div>
 
 	<div class="section-label">
 		<span>
@@ -146,18 +147,43 @@
 		</div>
 	{/each}
 
-	{#each $friends as f}
-		<div class="friend-item">
-			<Avatar url={f.user.avatar_url} name={f.user.display_name} userId={f.user.id} size={28} />
+	{#if $friends.length > 0}
+		<div class="filter-wrap">
+			<input class="filter-input" bind:value={filterQuery} placeholder="Filter friends…" />
+		</div>
+	{/if}
+
+	{#each sortedFriends as f}
+		{@const conv = $dmConversations.find((c) => c.other_user.id === f.user.id)}
+		{@const isActive = $activeDM?.other_user.id === f.user.id}
+		{@const unread = (conv?.unread_count ?? 0) > 0 && !isActive}
+		<div
+			class="friend-item clickable"
+			class:active={isActive}
+			class:has-unread={unread}
+			role="button"
+			tabindex="0"
+			onclick={() => openDM(f.user.id)}
+			onkeydown={(e) => e.key === 'Enter' && openDM(f.user.id)}
+		>
+			<Avatar url={f.user.avatar_url} name={f.user.display_name} userId={f.user.id} size={28} showPresence />
 			<span class="friend-name">{f.user.display_name}</span>
-			<button class="msg-btn" onclick={() => messageFriend(f.user.id)} title="Message">
-				<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
-			</button>
-			<button class="call-btn" onclick={() => callFriend(f.user.id, f.user.display_name, f.user.avatar_url ?? '')} title="Call">
+			{#if unread}
+				<span class="badge">{conv!.unread_count}</span>
+			{/if}
+			<button
+				class="call-btn"
+				onclick={(e) => { e.stopPropagation(); callFriend(f.user.id, f.user.display_name, f.user.avatar_url ?? ''); }}
+				title="Call"
+			>
 				<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg>
 			</button>
 		</div>
 	{/each}
+
+	{#if $friends.length === 0 && $friendRequests.length === 0}
+		<p class="empty-hint">Add friends to start chatting.</p>
+	{/if}
 
 </div><!-- end sidebar-scroll -->
 <UserBar />
@@ -197,49 +223,6 @@
 		color: var(--text-muted);
 		letter-spacing: 0.04em;
 	}
-	.section-divider {
-		height: 1px;
-		background: var(--border);
-		margin: 0.75rem 0.75rem 0;
-	}
-	.channel-item {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		background: none;
-		border: none;
-		color: var(--text-muted);
-		padding: 0.375rem 0.75rem;
-		text-align: left;
-		cursor: pointer;
-		border-radius: 4px;
-		margin: 0 0.25rem;
-		width: calc(100% - 0.5rem);
-		font-size: 0.9rem;
-	}
-	@media (max-width: 767px) {
-		.channel-item { padding: 0.65rem 0.75rem; font-size: 1rem; }
-	}
-	.channel-item:hover, .channel-item.active { background: rgba(255,255,255,0.07); color: var(--text); }
-	.channel-item.has-unread { color: var(--text); font-weight: 600; }
-	.dm-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-	.badge {
-		margin-left: auto;
-		background: #e04545;
-		color: white;
-		font-size: 0.7rem;
-		font-weight: 700;
-		border-radius: 8px;
-		padding: 0.1rem 0.4rem;
-		flex-shrink: 0;
-	}
-	.empty-hint {
-		font-size: 0.78rem;
-		color: var(--text-muted);
-		padding: 0.25rem 0.75rem 0.5rem;
-		margin: 0;
-		line-height: 1.4;
-	}
 	.add-btn {
 		background: none;
 		border: none;
@@ -261,6 +244,21 @@
 		margin-left: 0.25rem;
 		vertical-align: middle;
 	}
+	.filter-wrap {
+		padding: 0.25rem 0.75rem 0.125rem;
+	}
+	.filter-input {
+		background: var(--bg-input);
+		border: 1px solid var(--border);
+		color: var(--text);
+		padding: 0.3rem 0.5rem;
+		border-radius: 4px;
+		font-size: 0.82rem;
+		width: 100%;
+		outline: none;
+		font-family: inherit;
+	}
+	.filter-input::placeholder { color: var(--text-muted); }
 	.friend-search {
 		padding: 0.25rem 0.75rem;
 		display: flex;
@@ -325,8 +323,24 @@
 		margin: 0 0.25rem;
 		border-radius: 4px;
 	}
-	.friend-item:hover { background: rgba(255,255,255,0.05); }
-	.friend-name { flex: 1; font-size: 0.875rem; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.friend-item.clickable {
+		cursor: pointer;
+		user-select: none;
+	}
+	.friend-item.clickable:hover { background: rgba(255,255,255,0.07); }
+	.friend-item.active { background: rgba(255,255,255,0.1); }
+	.friend-item.active .friend-name { color: var(--text); }
+	.friend-item.has-unread .friend-name { color: var(--text); font-weight: 600; }
+	.friend-name { flex: 1; font-size: 0.875rem; color: var(--text-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.badge {
+		background: #e04545;
+		color: white;
+		font-size: 0.7rem;
+		font-weight: 700;
+		border-radius: 8px;
+		padding: 0.1rem 0.4rem;
+		flex-shrink: 0;
+	}
 	.pending-badge {
 		font-size: 0.65rem;
 		font-weight: 600;
@@ -358,21 +372,6 @@
 		flex-shrink: 0;
 	}
 	.decline-btn:hover { color: #e04545; background: rgba(224,69,69,0.1); }
-	.msg-btn {
-		background: none;
-		border: none;
-		color: var(--text-muted);
-		cursor: pointer;
-		padding: 0.2rem 0.3rem;
-		border-radius: 3px;
-		display: flex;
-		align-items: center;
-		opacity: 0;
-		transition: opacity 0.1s;
-		flex-shrink: 0;
-	}
-	.friend-item:hover .msg-btn { opacity: 1; }
-	.msg-btn:hover { color: var(--text); background: rgba(255,255,255,0.1); }
 	.call-btn {
 		background: none;
 		border: none;
@@ -388,5 +387,12 @@
 	}
 	.friend-item:hover .call-btn { opacity: 1; }
 	.call-btn:hover { color: #43b581; background: rgba(67,181,129,0.1); }
-	@media (max-width: 767px) { .msg-btn, .call-btn { opacity: 1; } }
+	.empty-hint {
+		font-size: 0.78rem;
+		color: var(--text-muted);
+		padding: 0.25rem 0.75rem 0.5rem;
+		margin: 0;
+		line-height: 1.4;
+	}
+	@media (max-width: 767px) { .call-btn { opacity: 1; } }
 </style>
