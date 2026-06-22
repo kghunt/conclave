@@ -14,12 +14,17 @@
 	let uploading = $state(false);
 	let fileInput: HTMLInputElement;
 
-	// Desktop presence companion
-	let presenceConnected = $state(false);
+	// Desktop presence companion — three states: none / token-pending / active
+	let presenceHasToken = $state(false);
+	let presenceActive = $state(false);
 	let presenceLinking = $state(false);
 
 	onMount(async () => {
-		try { presenceConnected = (await api.getPresenceTokenStatus()).connected; } catch { /* ignore */ }
+		try {
+			const s = await api.getPresenceTokenStatus();
+			presenceHasToken = s.has_token;
+			presenceActive = s.active;
+		} catch { /* ignore */ }
 	});
 
 	// Sync form fields if store changes (e.g. after avatar upload re-fetch)
@@ -46,7 +51,8 @@
 			const { token } = await api.generatePresenceToken();
 			const url = `conclave://connect?instance=${encodeURIComponent(location.origin)}&token=${encodeURIComponent(token)}`;
 			location.href = url;
-			presenceConnected = true;
+			presenceHasToken = true;
+			presenceActive = false; // app hasn't heartbeated yet
 		} catch { /* ignore */ } finally {
 			presenceLinking = false;
 		}
@@ -54,7 +60,8 @@
 
 	async function disconnectPresenceApp() {
 		await api.revokePresenceToken();
-		presenceConnected = false;
+		presenceHasToken = false;
+		presenceActive = false;
 	}
 
 	async function uploadAvatar(e: Event) {
@@ -171,14 +178,20 @@
 			<p class="presence-desc">
 				Runs in your system tray, detects what game you're playing, and shows your status to other members.
 			</p>
-			{#if presenceConnected}
+			{#if presenceActive}
 				<div class="presence-row">
 					<span class="presence-status connected">● Connected</span>
 					<button class="presence-btn danger" onclick={disconnectPresenceApp}>Disconnect</button>
 				</div>
+			{:else if presenceHasToken}
+				<div class="presence-row">
+					<span class="presence-status waiting">⏳ Waiting for app…</span>
+					<button class="presence-btn danger" onclick={disconnectPresenceApp}>Revoke token</button>
+				</div>
+				<p class="presence-hint">Open the Conclave presence app on your computer to finish connecting.</p>
 			{:else}
 				<div class="presence-row">
-					<a class="presence-btn" href="https://github.com/karl/conclave/releases" target="_blank" rel="noopener">Download app ↗</a>
+					<a class="presence-btn" href="https://github.com/kghunt/conclave/releases" target="_blank" rel="noopener noreferrer">Download app ↗</a>
 					<button class="presence-btn primary" onclick={connectPresenceApp} disabled={presenceLinking}>
 						{presenceLinking ? 'Opening…' : 'Connect installed app'}
 					</button>
@@ -394,6 +407,12 @@
 		flex: 1;
 	}
 	.presence-status.connected { color: #44c97d; }
+	.presence-status.waiting { color: var(--text-muted); }
+	.presence-hint {
+		font-size: 0.75rem;
+		color: var(--text-muted);
+		margin-top: -0.25rem;
+	}
 	.presence-btn {
 		padding: 0.4rem 0.75rem;
 		border-radius: 5px;

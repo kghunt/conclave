@@ -181,7 +181,7 @@ export const api = {
 		req<RegistrationInvite>('POST', '/registration-invite'),
 
 	// desktop presence companion
-	getPresenceTokenStatus: () => req<{ connected: boolean }>('GET', '/presence/token'),
+	getPresenceTokenStatus: () => req<{ has_token: boolean; active: boolean }>('GET', '/presence/token'),
 	generatePresenceToken: () => req<{ token: string }>('POST', '/presence/token'),
 	revokePresenceToken: () => req<void>('DELETE', '/presence/token'),
 
