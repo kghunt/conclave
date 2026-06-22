@@ -113,31 +113,6 @@
 	search('');
 </script>
 
-{#if rulesSpace}
-	<div class="overlay" role="presentation">
-		<div class="rules-modal" role="dialog" aria-label="Space rules">
-			<div class="rules-header">
-				<h2>Rules for {rulesSpace.name}</h2>
-			</div>
-			<div class="rules-body">
-				<pre class="rules-text">{rulesSpace.rules}</pre>
-			</div>
-			<div class="rules-footer">
-				<label class="rules-accept">
-					<input type="checkbox" bind:checked={rulesAccepted} />
-					I have read and agree to these rules
-				</label>
-				<div class="rules-actions">
-					<button class="cancel-btn" onclick={() => (rulesSpace = null)}>Cancel</button>
-					<button class="accept-btn" disabled={!rulesAccepted} onclick={acceptRules}>
-						{rulesSpace.requires_request ? 'Accept & Request' : 'Accept & Join'}
-					</button>
-				</div>
-			</div>
-		</div>
-	</div>
-{/if}
-
 <div class="overlay" onclick={onclose} role="presentation">
 	<div class="panel" onclick={(e) => e.stopPropagation()} role="dialog" aria-label="Browse public spaces">
 		<div class="header">
@@ -218,6 +193,31 @@
 		</div>
 	</div>
 </div>
+
+{#if rulesSpace}
+	<div class="overlay rules-overlay" role="presentation">
+		<div class="rules-modal" role="dialog" aria-label="Space rules">
+			<div class="rules-header">
+				<h2>Rules for {rulesSpace.name}</h2>
+			</div>
+			<div class="rules-body">
+				<pre class="rules-text">{rulesSpace.rules}</pre>
+			</div>
+			<div class="rules-footer">
+				<label class="rules-accept">
+					<input type="checkbox" bind:checked={rulesAccepted} />
+					I have read and agree to these rules
+				</label>
+				<div class="rules-actions">
+					<button class="cancel-btn" onclick={() => (rulesSpace = null)}>Cancel</button>
+					<button class="accept-btn" disabled={!rulesAccepted} onclick={acceptRules}>
+						{rulesSpace.requires_request ? 'Accept & Request' : 'Accept & Join'}
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.overlay {
@@ -380,6 +380,7 @@
 		margin-left: 0.4rem;
 		font-weight: 400;
 	}
+	.rules-overlay { z-index: 310; }
 	.rules-modal {
 		background: var(--bg-panel);
 		border: 1px solid var(--border);
@@ -389,7 +390,6 @@
 		max-height: 80vh;
 		display: flex;
 		flex-direction: column;
-		z-index: 310;
 	}
 	.rules-header {
 		padding: 1.25rem 1.5rem;
