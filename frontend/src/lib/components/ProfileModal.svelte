@@ -18,6 +18,8 @@
 	let presenceHasToken = $state(false);
 	let presenceActive = $state(false);
 	let presenceLinking = $state(false);
+	let presenceDeepLink = $state('');   // set after token generation, shown as clickable link
+	let presenceCopied = $state(false);
 	let downloads = $state<Record<string, boolean>>({});
 
 	function detectPlatform(): 'windows' | 'macos-arm64' | 'macos-x64' | 'linux' {
@@ -73,19 +75,25 @@
 		presenceLinking = true;
 		try {
 			const { token } = await api.generatePresenceToken();
-			const url = `conclave://connect?instance=${encodeURIComponent(location.origin)}&token=${encodeURIComponent(token)}`;
-			location.href = url;
+			presenceDeepLink = `conclave://connect?instance=${encodeURIComponent(location.origin)}&token=${encodeURIComponent(token)}`;
 			presenceHasToken = true;
-			presenceActive = false; // app hasn't heartbeated yet
+			presenceActive = false;
 		} catch { /* ignore */ } finally {
 			presenceLinking = false;
 		}
+	}
+
+	async function copyDeepLink() {
+		await navigator.clipboard.writeText(presenceDeepLink);
+		presenceCopied = true;
+		setTimeout(() => presenceCopied = false, 2000);
 	}
 
 	async function disconnectPresenceApp() {
 		await api.revokePresenceToken();
 		presenceHasToken = false;
 		presenceActive = false;
+		presenceDeepLink = '';
 	}
 
 	async function uploadAvatar(e: Event) {
@@ -208,11 +216,20 @@
 					<button class="presence-btn danger" onclick={disconnectPresenceApp}>Disconnect</button>
 				</div>
 			{:else if presenceHasToken}
+				{#if presenceDeepLink}
+					<p class="presence-hint-bold">Click the link below to open the app. If nothing happens, copy it and paste it into your browser's address bar.</p>
+					<div class="presence-deeplink-row">
+						<a class="presence-deeplink" href={presenceDeepLink}>Open Conclave Presence app</a>
+						<button class="presence-btn" onclick={copyDeepLink}>{presenceCopied ? 'Copied!' : 'Copy link'}</button>
+					</div>
+				{/if}
 				<div class="presence-row">
 					<span class="presence-status waiting">⏳ Waiting for app…</span>
 					<button class="presence-btn danger" onclick={disconnectPresenceApp}>Revoke token</button>
 				</div>
-				<p class="presence-hint">Open the Conclave presence app on your computer to finish connecting.</p>
+				{#if !presenceDeepLink}
+					<p class="presence-hint">Open the Conclave presence app on your computer to finish connecting.</p>
+				{/if}
 			{:else}
 				{@const platform = detectPlatform()}
 				{@const files = platformFiles[platform]}
@@ -451,6 +468,27 @@
 		color: var(--text-muted);
 		margin-top: -0.25rem;
 	}
+	.presence-hint-bold {
+		font-size: 0.78rem;
+		color: var(--text-muted);
+	}
+	.presence-deeplink-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+	.presence-deeplink {
+		flex: 1;
+		padding: 0.4rem 0.75rem;
+		border-radius: 5px;
+		font-size: 0.82rem;
+		font-weight: 600;
+		text-decoration: none;
+		background: var(--accent);
+		color: white;
+		text-align: center;
+	}
+	.presence-deeplink:hover { opacity: 0.9; }
 	.presence-btn {
 		padding: 0.4rem 0.75rem;
 		border-radius: 5px;
