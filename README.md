@@ -1,6 +1,6 @@
 # Conclave
 
-A self-hosted team chat application. Organised around **Spaces** (subject-focused communities) containing **Channels**, with direct messaging, file/image sharing, and role-based permissions.
+A self-hosted team chat application. Organised around **Spaces** (subject-focused communities) containing **Channels**, with direct messaging, voice calls, file sharing, and role-based permissions.
 
 Built with Go, SvelteKit, PostgreSQL, and Redis. Runs as a single `docker compose up`.
 
@@ -16,43 +16,71 @@ Built with Go, SvelteKit, PostgreSQL, and Redis. Runs as a single `docker compos
 - Inline image rendering (paste, drag-and-drop, or file picker)
 - Video clip uploads (mp4, webm, mov) with configurable size cap
 - @mention notifications with sound alerts and channel highlights
+- Push notifications (web push) for mentions and DMs — works in-browser and as an installed PWA
 
 **Spaces & Channels**
 - Public spaces (open join) or invite-only with shareable invite links
 - Space discovery page for finding public communities
-- Join request flow for spaces that require approval
+- Space rules — shown to users before they join or request access
+- Join request flow for spaces that require admin approval
 - Custom roles with names and colours — assigned per member
 - Per-channel visibility and write permissions per role
 - Default "everyone" role with overridable defaults
 - Kick, ban, and unban members
+- Threaded channels for organised discussion
 
-**Direct Messages**
+**Voice**
+- Voice channels with multi-party audio (powered by LiveKit)
+- Direct voice calls between friends
+
+**Direct Messages & Friends**
 - One-to-one DMs (friends only)
 - Friend requests and friend list
+- Unread DM indicators
 
-**Users**
+**Authentication**
 - Google OAuth sign-in
-- User profiles with avatars (auto-generated if not set)
-- Online/away presence indicators
+- Username/password (local) accounts — can be used alongside or instead of Google
+- Configurable registration: **open** (anyone can register), **invite-only**, or **closed**
+- Registration invite codes — admins can create codes with custom uses and expiry; users can generate one 1-use/1-day code per day to invite friends
+- The first user to register is always allowed through, regardless of registration mode — so local-auth-only instances can self-host without a chicken-and-egg invite problem
+
+**Users & Presence**
+- User profiles with display name, bio, and avatar (auto-generated if not set)
+- Online / away / offline presence indicators
+- Game status — connect the desktop companion app to automatically show what game you're playing
+
+**Desktop Presence App**
+- Optional Tauri-based system tray companion (Windows, macOS, Linux)
+- Detects running game processes and reports your status in real-time
+- Connect in one click from **Edit Profile → Desktop Presence App** via a `conclave://` deep link
+- Game name appears below your display name in member lists across all shared spaces
 
 **Instance Admin**
+- Authentication settings — enable/disable Google OAuth and local auth independently; set registration mode
+- Registration invite code management (create, list, delete)
+- Ban/unban users instance-wide
 - Message and inactive-space retention policies
 - Max video upload size (set to 0 to disable video uploads)
-- Ban/unban users instance-wide
-- Custom theme (accent colour, background, sidebar, etc.)
+- Custom theme — accent colour, background, sidebar, panel colours, etc.
+- User list with search
 
 ---
 
 ## Requirements
 
 - [Docker](https://docs.docker.com/get-docker/) with the Compose plugin (`docker compose version`)
-- A Google Cloud project with OAuth 2.0 credentials
+- A Google OAuth 2.0 credential **or** local auth enabled (see [Authentication modes](#authentication-modes))
 
 ---
 
 ## Setup
 
-### 1. Google OAuth credentials
+### 1. Authentication
+
+Conclave supports Google OAuth, username/password accounts, or both at once. You configure which are active from the Instance Admin panel after first login.
+
+#### Google OAuth (optional but recommended for easy onboarding)
 
 1. Go to [console.cloud.google.com](https://console.cloud.google.com)
 2. Create a project (or use an existing one)
@@ -68,6 +96,8 @@ Built with Go, SvelteKit, PostgreSQL, and Redis. Runs as a single `docker compos
    http://localhost:8080
    ```
 7. Copy the **Client ID** and **Client Secret**
+
+If you don't want Google OAuth at all, set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to placeholder values (e.g. `disabled`) and disable Google auth in the admin panel after first login. The server currently requires these env vars to start even if Google auth is turned off — this will be improved in a future release.
 
 ### 2. Environment file
 
@@ -88,13 +118,29 @@ JWT_SECRET=a-long-random-string-at-least-32-chars
 # URL the app is reachable at (no trailing slash)
 BASE_URL=http://localhost:8080
 
-# Optional: your Google account email — grants access to the instance admin panel
-INSTANCE_ADMIN_EMAIL=you@gmail.com
+# Optional: your email — grants access to the instance admin panel
+# Must match the email on your Google account or your local account
+INSTANCE_ADMIN_EMAIL=you@example.com
+
+# Optional: voice channels (LiveKit)
+LIVEKIT_URL=wss://your-livekit-server:7880
+LIVEKIT_KEY=your-livekit-api-key
+LIVEKIT_SECRET=your-livekit-api-secret
+
+# Optional: web push notifications
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_EMAIL=admin@yourdomain.com
 ```
 
 Generate a strong JWT secret:
 ```bash
 openssl rand -base64 32
+```
+
+Generate VAPID keys for push notifications:
+```bash
+npx web-push generate-vapid-keys
 ```
 
 ### 3. Run
@@ -111,7 +157,11 @@ The first `--build` compiles the Go binary and the SvelteKit frontend inside Doc
 docker compose up
 ```
 
-### 4. Stop
+### 4. First login
+
+The very first account registered on a fresh instance is always allowed through, regardless of the registration mode setting. Register with the email that matches `INSTANCE_ADMIN_EMAIL` to gain admin access immediately.
+
+### 5. Stop
 
 ```bash
 docker compose down          # stop containers, keep data
@@ -147,7 +197,7 @@ JWT_SECRET=a-long-random-string-at-least-32-chars
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-client-secret
 BASE_URL=https://chat.yourdomain.com
-INSTANCE_ADMIN_EMAIL=you@gmail.com   # optional
+INSTANCE_ADMIN_EMAIL=you@example.com
 ```
 
 Generate secrets:
@@ -225,17 +275,101 @@ Caddy handles TLS and WebSocket proxying automatically.
 
 ---
 
+## Voice channels
+
+Voice requires a [LiveKit](https://livekit.io) server. LiveKit offers a managed cloud service (generous free tier) or you can self-host.
+
+Set the following in `.env`:
+
+```env
+LIVEKIT_URL=wss://your-livekit-server:7880
+LIVEKIT_KEY=your-api-key
+LIVEKIT_SECRET=your-api-secret
+```
+
+Without these, voice channels are present in the UI but calls will not connect.
+
+---
+
+## Push notifications
+
+Web push requires VAPID keys. Generate them once and store them in `.env` — they must stay the same across restarts or existing browser subscriptions will stop working.
+
+```bash
+npx web-push generate-vapid-keys
+```
+
+```env
+VAPID_PUBLIC_KEY=BExamplePublicKey...
+VAPID_PRIVATE_KEY=ExamplePrivateKey...
+VAPID_EMAIL=admin@yourdomain.com
+```
+
+Users opt in to notifications per-browser from the bell icon in the bottom-left user bar.
+
+---
+
+## Desktop presence app
+
+The optional presence companion is a small system-tray app that detects which game you're running and reports it to Conclave so other members can see your game status in real-time.
+
+**Install**
+
+Download the latest release for your platform from the [Releases page](https://github.com/kghunt/conclave/releases) (look for `desktop-v*` tags).
+
+**Connect**
+
+1. In Conclave, click your name/avatar in the bottom-left → **Edit Profile**
+2. Scroll to **Desktop Presence App** → click **Connect installed app**
+3. The browser opens a `conclave://` deep link that configures the app automatically
+
+**How it works**
+
+- Scans running processes every 30 seconds against a list of known game executables
+- Reports the current game (or clears it when no game is running) to your Conclave instance via a Bearer token — no passwords stored
+- The token can be revoked at any time from Edit Profile → **Disconnect**
+
+**Build from source**
+
+```bash
+cd desktop
+npm install
+npm run build   # produces platform installers in src-tauri/target/release/bundle/
+```
+
+Requires Rust (stable), Node 20+, and the [Tauri prerequisites](https://tauri.app/start/prerequisites/) for your platform.
+
+---
+
+## Authentication modes
+
+Configure from **Instance Admin → Authentication** after first login.
+
+| Mode | Behaviour |
+|---|---|
+| **Open** | Anyone can create an account |
+| **Invite only** | New accounts require a valid invite code |
+| **Closed** | No new registrations |
+
+**Invite codes** can be created by admins (any uses, any expiry) from the admin panel. Regular users can generate one code per day (1-use, 24-hour expiry) from the DM sidebar — useful for letting friends in without giving them the admin panel.
+
+---
+
 ## Instance admin
 
-If you set `INSTANCE_ADMIN_EMAIL` in your `.env`, that Google account gets access to the **Instance Admin** panel (⚙ icon in the bottom-left after logging in).
-
-From there you can configure:
+Set `INSTANCE_ADMIN_EMAIL` to your email in `.env`. After logging in with that account the **⚙ admin panel** appears in the bottom-left.
 
 | Setting | Description |
 |---|---|
+| **Google auth** | Enable or disable Google OAuth sign-in |
+| **Local auth** | Enable or disable username/password accounts |
+| **Registration mode** | Open / invite-only / closed |
+| **Registration invites** | Create and manage invite codes |
+| **User list** | Search all accounts, ban/unban instance-wide |
 | **Message retention** | Delete messages older than N days (`0` = keep forever) |
 | **Inactive space retention** | Delete spaces with no activity for N days (`0` = never) |
-| **Max video upload size** | Maximum MB for video uploads (`0` = disable video uploads, default 50MB) |
+| **Max video upload size** | Maximum MB for video uploads (`0` = disable video uploads, default 50 MB) |
+| **Theme** | Accent colour, background, sidebar, panel colours |
 
 Cleanup runs automatically every 24 hours and at startup.
 
@@ -243,7 +377,7 @@ Cleanup runs automatically every 24 hours and at startup.
 
 ## Development (without Docker)
 
-Prerequisites: Go 1.25+, Node 20+, a running PostgreSQL and Redis instance.
+Prerequisites: Go 1.22+, Node 20+, a running PostgreSQL and Redis instance.
 
 ```bash
 # Backend
@@ -270,7 +404,7 @@ docker compose
 └── redis    — WebSocket pub/sub (future: multi-instance scaling)
 ```
 
-The Go binary is built in a multi-stage Dockerfile: Node builds the SvelteKit frontend, Go compiles the backend, both land in a minimal Alpine image (~30MB).
+The Go binary is built in a multi-stage Dockerfile: Node builds the SvelteKit frontend, Go compiles the backend, both land in a minimal Alpine image (~30 MB).
 
 ---
 
