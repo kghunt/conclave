@@ -68,6 +68,7 @@ jobs:
 
             **Self-hosting:** copy the file for your platform into `./data/downloads/` on your server
             and Conclave will serve it directly to your users from Edit Profile.
+          iconPath: desktop/src-tauri/icons/1024x1024.png
           args: --target ${{ matrix.target }}
 
       # Rename to the canonical filename Conclave expects, then attach to the release.

@@ -7,8 +7,9 @@ use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager,
+    Manager,
 };
+use tauri_plugin_deep_link::DeepLinkExt;
 
 struct AppState {
     config: Arc<Mutex<config::Config>>,
@@ -39,7 +40,6 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_shell::init())
         .manage(AppState { config: cfg })
         .setup(move |app| {
             // Hide the main window on startup — we live in the tray.
@@ -53,6 +53,7 @@ pub fn run() {
             let menu = Menu::with_items(app, &[&open, &quit])?;
 
             let _tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "quit" => app.exit(0),
@@ -76,34 +77,36 @@ pub fn run() {
                 .build(app)?;
 
             // Handle deep links: conclave://connect?instance=...&token=...
-            let app_handle: AppHandle = app.handle().clone();
-            app.listen("deep-link://new-url", move |event| {
-                let url = event.payload().trim_matches('"').to_string();
-                if let Some(query) = url.strip_prefix("conclave://connect?") {
-                    let mut instance = String::new();
-                    let mut token = String::new();
-                    for pair in query.split('&') {
-                        if let Some((k, v)) = pair.split_once('=') {
-                            let decoded = urlencoding_decode(v);
-                            match k {
-                                "instance" => instance = decoded,
-                                "token" => token = decoded,
-                                _ => {}
+            let state: tauri::State<AppState> = app.state();
+            let cfg_link = state.config.clone();
+            let app_handle = app.handle().clone();
+
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    let url_str = url.as_str();
+                    if let Some(query) = url_str.strip_prefix("conclave://connect?") {
+                        let mut instance = String::new();
+                        let mut token = String::new();
+                        for pair in query.split('&') {
+                            if let Some((k, v)) = pair.split_once('=') {
+                                let decoded = url_decode(v);
+                                match k {
+                                    "instance" => instance = decoded,
+                                    "token" => token = decoded,
+                                    _ => {}
+                                }
                             }
                         }
-                    }
-                    if !instance.is_empty() && !token.is_empty() {
-                        // Save config.
-                        let state: tauri::State<AppState> = app_handle.state();
-                        let mut cfg = state.config.lock().unwrap();
-                        cfg.instance_url = instance;
-                        cfg.token = token;
-                        cfg.save();
-                        drop(cfg);
-                        // Show confirmation window.
-                        if let Some(win) = app_handle.get_webview_window("main") {
-                            win.show().ok();
-                            win.set_focus().ok();
+                        if !instance.is_empty() && !token.is_empty() {
+                            let mut cfg = cfg_link.lock().unwrap();
+                            cfg.instance_url = instance;
+                            cfg.token = token;
+                            cfg.save();
+                            drop(cfg);
+                            if let Some(win) = app_handle.get_webview_window("main") {
+                                win.show().ok();
+                                win.set_focus().ok();
+                            }
                         }
                     }
                 }
@@ -136,7 +139,7 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-fn urlencoding_decode(s: &str) -> String {
+fn url_decode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.bytes().peekable();
     while let Some(b) = chars.next() {
