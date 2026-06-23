@@ -63,7 +63,12 @@
 	{#if $currentUser}
 		<button class="user-info" onclick={() => showProfileModal.set(true)} title="Edit profile">
 			<Avatar url={$currentUser.avatar_url} name={$currentUser.display_name} userId={$currentUser.id} size={32} showPresence />
-			<span class="username">{$currentUser.display_name}</span>
+			<div class="user-text">
+				<span class="username">{$currentUser.display_name}</span>
+				{#if $currentUser.custom_status}
+					<span class="user-status">{$currentUser.custom_status}</span>
+				{/if}
+			</div>
 		</button>
 		{#if pushSupported}
 			<button class="icon-bar-btn" class:active={pushSubscribed} onclick={toggleNotifications} disabled={pushToggling}
@@ -110,11 +115,23 @@
 		text-align: left;
 	}
 	.user-info:hover { background: rgba(255,255,255,0.06); }
+	.user-text {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		flex: 1;
+	}
 	.username {
 		font-size: 0.85rem;
 		font-weight: 600;
 		color: var(--text);
-		flex: 1;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.user-status {
+		font-size: 0.72rem;
+		color: var(--text-muted);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;

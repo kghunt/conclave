@@ -363,7 +363,7 @@ func (h *ServersHandler) Members(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.db.Query(r.Context(), `
-		SELECT u.id, u.display_name, u.bio, u.avatar_url, u.created_at, u.updated_at, sm.role, sm.joined_at
+		SELECT u.id, u.display_name, u.bio, u.custom_status, u.avatar_url, u.created_at, u.updated_at, sm.role, sm.joined_at
 		FROM server_members sm JOIN users u ON u.id = sm.user_id
 		WHERE sm.server_id = $1
 		ORDER BY sm.role, u.display_name
@@ -379,7 +379,7 @@ func (h *ServersHandler) Members(w http.ResponseWriter, r *http.Request) {
 		var m models.ServerMember
 		m.User = &models.User{}
 		m.SpaceRoles = []models.SpaceRole{}
-		if err := rows.Scan(&m.User.ID, &m.User.DisplayName, &m.User.Bio, &m.User.AvatarURL, &m.User.CreatedAt, &m.User.UpdatedAt, &m.Role, &m.JoinedAt); err != nil {
+		if err := rows.Scan(&m.User.ID, &m.User.DisplayName, &m.User.Bio, &m.User.CustomStatus, &m.User.AvatarURL, &m.User.CreatedAt, &m.User.UpdatedAt, &m.Role, &m.JoinedAt); err != nil {
 			continue
 		}
 		members = append(members, m)

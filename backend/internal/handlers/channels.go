@@ -60,19 +60,21 @@ func (h *ChannelsHandler) List(w http.ResponseWriter, r *http.Request) {
 	)
 	if isAdmin {
 		rows, err = h.db.Query(r.Context(), `
-			SELECT c.id, c.server_id, c.name, c.description, c.type, c.position, c.created_at,
+			SELECT c.id, c.server_id, c.name, c.description, c.type, c.position,
+			       c.slow_mode_seconds, c.category, c.created_at,
 			  `+unreadSub+`, TRUE
 			FROM channels c WHERE c.server_id = $1
-			ORDER BY c.position, c.name
+			ORDER BY c.category, c.position, c.name
 		`, serverID, userID)
 	} else {
 		rows, err = h.db.Query(r.Context(), `
-			SELECT c.id, c.server_id, c.name, c.description, c.type, c.position, c.created_at,
+			SELECT c.id, c.server_id, c.name, c.description, c.type, c.position,
+			       c.slow_mode_seconds, c.category, c.created_at,
 			  `+unreadSub+`,
 			  `+permWriteCond+`
 			FROM channels c WHERE c.server_id = $1
 			AND `+permViewCond+`
-			ORDER BY c.position, c.name
+			ORDER BY c.category, c.position, c.name
 		`, serverID, userID)
 	}
 	if err != nil {
@@ -84,7 +86,8 @@ func (h *ChannelsHandler) List(w http.ResponseWriter, r *http.Request) {
 	channels := make([]models.Channel, 0)
 	for rows.Next() {
 		var c models.Channel
-		if err := rows.Scan(&c.ID, &c.ServerID, &c.Name, &c.Description, &c.Type, &c.Position, &c.CreatedAt, &c.UnreadCount, &c.CanWrite); err != nil {
+		if err := rows.Scan(&c.ID, &c.ServerID, &c.Name, &c.Description, &c.Type, &c.Position,
+			&c.SlowModeSeconds, &c.Category, &c.CreatedAt, &c.UnreadCount, &c.CanWrite); err != nil {
 			continue
 		}
 		channels = append(channels, c)
@@ -104,9 +107,11 @@ func (h *ChannelsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Type        string `json:"type"`
+		Name            string `json:"name"`
+		Description     string `json:"description"`
+		Type            string `json:"type"`
+		SlowModeSeconds int    `json:"slow_mode_seconds"`
+		Category        string `json:"category"`
 	}
 	if err := decodeJSON(r, &body); err != nil || body.Name == "" {
 		writeErr(w, http.StatusBadRequest, "name required")
@@ -119,14 +124,17 @@ func (h *ChannelsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if body.Type != "voice" && body.Type != "threads" {
 		body.Type = "text"
 	}
+	if body.SlowModeSeconds < 0 {
+		body.SlowModeSeconds = 0
+	}
 
 	var c models.Channel
 	err := h.db.QueryRow(r.Context(), `
-		INSERT INTO channels (server_id, name, description, type)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, server_id, name, description, type, position, created_at
-	`, serverID, body.Name, body.Description, body.Type).Scan(
-		&c.ID, &c.ServerID, &c.Name, &c.Description, &c.Type, &c.Position, &c.CreatedAt,
+		INSERT INTO channels (server_id, name, description, type, slow_mode_seconds, category)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, server_id, name, description, type, position, slow_mode_seconds, category, created_at
+	`, serverID, body.Name, body.Description, body.Type, body.SlowModeSeconds, body.Category).Scan(
+		&c.ID, &c.ServerID, &c.Name, &c.Description, &c.Type, &c.Position, &c.SlowModeSeconds, &c.Category, &c.CreatedAt,
 	)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "create failed")
@@ -149,8 +157,10 @@ func (h *ChannelsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Name        *string `json:"name"`
-		Description *string `json:"description"`
+		Name            *string `json:"name"`
+		Description     *string `json:"description"`
+		SlowModeSeconds *int    `json:"slow_mode_seconds"`
+		Category        *string `json:"category"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body")
@@ -160,12 +170,14 @@ func (h *ChannelsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	var c models.Channel
 	err := h.db.QueryRow(r.Context(), `
 		UPDATE channels
-		SET name        = COALESCE($1, name),
-		    description = COALESCE($2, description)
-		WHERE id = $3 AND server_id = $4
-		RETURNING id, server_id, name, description, type, position, created_at
-	`, body.Name, body.Description, channelID, serverID).Scan(
-		&c.ID, &c.ServerID, &c.Name, &c.Description, &c.Type, &c.Position, &c.CreatedAt,
+		SET name             = COALESCE($1, name),
+		    description      = COALESCE($2, description),
+		    slow_mode_seconds = COALESCE($3, slow_mode_seconds),
+		    category         = COALESCE($4, category)
+		WHERE id = $5 AND server_id = $6
+		RETURNING id, server_id, name, description, type, position, slow_mode_seconds, category, created_at
+	`, body.Name, body.Description, body.SlowModeSeconds, body.Category, channelID, serverID).Scan(
+		&c.ID, &c.ServerID, &c.Name, &c.Description, &c.Type, &c.Position, &c.SlowModeSeconds, &c.Category, &c.CreatedAt,
 	)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "channel not found")

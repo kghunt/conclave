@@ -25,6 +25,12 @@
 	let isMobile = $state(false);
 	let editingDesc = $state(false);
 	let descInput = $state('');
+	let slowModeCooldown = $state(0); // seconds remaining in slow mode
+	let slowModeTimer: ReturnType<typeof setInterval> | null = null;
+	let showSearch = $state(false);
+	let searchQuery = $state('');
+	let searchResults = $state<Message[]>([]);
+	let searchLoading = $state(false);
 
 	onMount(() => {
 		// Prevent the browser from suspending this tab.
@@ -542,6 +548,7 @@
 	}
 
 	async function send() {
+		if (slowModeCooldown > 0) return;
 		const text = input.trim();
 		if (!text) return;
 		input = '';
@@ -551,7 +558,36 @@
 		if ($activeDM) {
 			await api.sendDM($activeDM.id, text);
 		} else if ($activeChannel && $activeServer) {
-			await api.sendMessage($activeServer.id, $activeChannel.id, text, replyId);
+			try {
+				await api.sendMessage($activeServer.id, $activeChannel.id, text, replyId);
+			} catch (e: any) {
+				if (e?.status === 429 && e?.retry_after_seconds) {
+					startSlowModeCooldown(e.retry_after_seconds);
+					input = text; // restore the text so user doesn't lose it
+				}
+			}
+		}
+	}
+
+	function startSlowModeCooldown(seconds: number) {
+		slowModeCooldown = seconds;
+		if (slowModeTimer) clearInterval(slowModeTimer);
+		slowModeTimer = setInterval(() => {
+			slowModeCooldown = Math.max(0, slowModeCooldown - 1);
+			if (slowModeCooldown === 0 && slowModeTimer) {
+				clearInterval(slowModeTimer);
+				slowModeTimer = null;
+			}
+		}, 1000);
+	}
+
+	async function runSearch() {
+		if (!$activeServer || !searchQuery.trim()) { searchResults = []; return; }
+		searchLoading = true;
+		try {
+			searchResults = await api.searchMessages($activeServer.id, searchQuery.trim());
+		} finally {
+			searchLoading = false;
 		}
 	}
 
@@ -714,6 +750,9 @@
 				</div>
 				<div class="header-actions">
 					{#if $activeChannel}
+						<button onclick={() => { showSearch = !showSearch; if (!showSearch) { searchQuery = ''; searchResults = []; } }} class="icon-btn" class:active={showSearch} title="Search messages">
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+						</button>
 						<button onclick={() => (showMembers = !showMembers)} class="icon-btn" class:active={showMembers} title="Members" style="position:relative">
 							<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
 							{#if $pendingJoinRequests.length > 0}
@@ -723,6 +762,32 @@
 					{/if}
 				</div>
 			</header>
+
+			{#if showSearch && $activeChannel}
+				<div class="search-panel">
+					<input
+						class="search-input"
+						bind:value={searchQuery}
+						placeholder="Search messages…"
+						oninput={() => runSearch()}
+						autofocus
+					/>
+					{#if searchLoading}
+						<div class="search-hint">Searching…</div>
+					{:else if searchQuery && searchResults.length === 0}
+						<div class="search-hint">No results for "{searchQuery}"</div>
+					{:else}
+						{#each searchResults as msg}
+							<div class="search-result">
+								<span class="search-author">{msg.author?.display_name}</span>
+								<span class="search-channel">#{$channels.find(c => c.id === msg.channel_id)?.name ?? '?'}</span>
+								<p class="search-content">{msg.content}</p>
+								<span class="search-time">{new Date(msg.created_at).toLocaleDateString()}</span>
+							</div>
+						{/each}
+					{/if}
+				</div>
+			{/if}
 
 			{#if $activeChannel?.type === 'threads'}
 				{#if activeThread}
@@ -755,6 +820,10 @@
 				</span>
 				<span class="typing-text">{typingLabel}</span>
 			</div>
+
+			{#if slowModeCooldown > 0}
+				<div class="slow-mode-bar">⏳ Slow mode — wait {slowModeCooldown}s before sending again</div>
+			{/if}
 
 			<div class="input-area">
 				<div class="input-actions">
@@ -1012,6 +1081,48 @@
 	}
 	.icon-btn:hover { color: var(--text); background: rgba(255,255,255,0.1); }
 	.icon-btn.active { color: var(--accent); }
+	.search-panel {
+		padding: 0.5rem 1rem;
+		border-bottom: 1px solid var(--border);
+		background: var(--bg-panel);
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		max-height: 320px;
+		overflow-y: auto;
+	}
+	.search-input {
+		width: 100%;
+		background: var(--bg-input);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		color: var(--text);
+		padding: 0.45rem 0.75rem;
+		font-size: 0.9rem;
+		font-family: inherit;
+		outline: none;
+	}
+	.search-hint { font-size: 0.82rem; color: var(--text-muted); padding: 0.25rem 0; }
+	.search-result {
+		display: grid;
+		grid-template-columns: auto auto 1fr auto;
+		align-items: baseline;
+		gap: 0.4rem;
+		padding: 0.4rem 0;
+		border-bottom: 1px solid var(--border);
+	}
+	.search-result:last-child { border-bottom: none; }
+	.search-author { font-size: 0.82rem; font-weight: 600; color: var(--text); }
+	.search-channel { font-size: 0.75rem; color: var(--text-muted); }
+	.search-content { font-size: 0.85rem; color: var(--text-muted); margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.search-time { font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; }
+	.slow-mode-bar {
+		padding: 0.35rem 1rem;
+		background: rgba(240,180,0,0.1);
+		color: #f0b400;
+		font-size: 0.8rem;
+		border-top: 1px solid rgba(240,180,0,0.2);
+	}
 	.reply-bar {
 		display: flex;
 		align-items: center;
