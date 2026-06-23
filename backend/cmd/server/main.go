@@ -160,6 +160,12 @@ func main() {
 		r.Delete("/api/threads/{threadID}/messages/{messageID}", threadsH.DeleteMessage)
 		r.Patch("/api/threads/{threadID}/lock", threadsH.SetLocked)
 
+		// search
+		r.Get("/api/servers/{serverID}/search", messagesH.Search)
+
+		// unfurl link previews (authenticated to prevent SSRF abuse)
+		r.Get("/api/unfurl", handlers.Unfurl)
+
 		// messages
 		r.Get("/api/servers/{serverID}/channels/{channelID}/messages", messagesH.List)
 		r.Post("/api/servers/{serverID}/channels/{channelID}/messages", messagesH.Send)

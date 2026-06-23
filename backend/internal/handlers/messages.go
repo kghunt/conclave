@@ -162,6 +162,29 @@ func (h *MessagesHandler) Send(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Slow mode: check per-user cooldown before accepting content.
+	var slowSecs int
+	h.db.QueryRow(r.Context(), `SELECT slow_mode_seconds FROM channels WHERE id = $1`, channelID).Scan(&slowSecs)
+	if slowSecs > 0 {
+		var lastMsg time.Time
+		h.db.QueryRow(r.Context(), `
+			SELECT created_at FROM messages
+			WHERE channel_id = $1 AND author_id = $2
+			ORDER BY created_at DESC LIMIT 1
+		`, channelID, userID).Scan(&lastMsg)
+		elapsed := time.Since(lastMsg)
+		remaining := time.Duration(slowSecs)*time.Second - elapsed
+		if remaining > 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			json.NewEncoder(w).Encode(map[string]any{
+				"error":              "slow mode",
+				"retry_after_seconds": int(remaining.Seconds()) + 1,
+			})
+			return
+		}
+	}
+
 	var body struct {
 		Content   string `json:"content"`
 		ReplyToID string `json:"reply_to_id"`
@@ -471,4 +494,50 @@ func (h *MessagesHandler) broadcastReaction(channelID, messageID, emoji, userID,
 		"action":     action,
 	})
 	h.hub.Broadcast("channel:"+channelID, ws.Event{Type: "reaction.toggle", Payload: payload})
+}
+
+func (h *MessagesHandler) Search(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+	userID := middleware.UserID(r)
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		writeJSON(w, http.StatusOK, []any{})
+		return
+	}
+
+	var isMember bool
+	h.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM server_members WHERE server_id=$1 AND user_id=$2)`, serverID, userID).Scan(&isMember)
+	if !isMember {
+		writeErr(w, http.StatusForbidden, "not a member")
+		return
+	}
+
+	rows, err := h.db.Query(r.Context(), `
+		SELECT m.id, m.channel_id, m.content, m.edited_at, m.created_at,
+		       u.id, u.display_name, u.bio, u.avatar_url
+		FROM messages m
+		JOIN users u ON u.id = m.author_id
+		JOIN channels c ON c.id = m.channel_id
+		WHERE c.server_id = $1
+		  AND m.content ILIKE $2
+		ORDER BY m.created_at DESC
+		LIMIT 50
+	`, serverID, "%"+q+"%")
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "search failed")
+		return
+	}
+	defer rows.Close()
+
+	results := make([]models.Message, 0)
+	for rows.Next() {
+		var m models.Message
+		m.Author = &models.User{}
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Content, &m.EditedAt, &m.CreatedAt,
+			&m.Author.ID, &m.Author.DisplayName, &m.Author.Bio, &m.Author.AvatarURL); err != nil {
+			continue
+		}
+		results = append(results, m)
+	}
+	writeJSON(w, http.StatusOK, results)
 }

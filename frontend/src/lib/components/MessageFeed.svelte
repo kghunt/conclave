@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { currentUser, activeServer, activeChannel, activeDM, serverMembers } from '$lib/stores';
-	import { api, type Message, type DirectMessage } from '$lib/api';
+	import { api, type Message, type DirectMessage, type LinkPreview } from '$lib/api';
 	import Avatar from './Avatar.svelte';
 	import EmojiPicker from './EmojiPicker.svelte';
 	import LightboxImage from './LightboxImage.svelte';
@@ -111,6 +111,26 @@
 		return content.length > 80 ? content.slice(0, 80) + '…' : content;
 	}
 
+	const urlRe = /https?:\/\/[^\s<>"']+/gi;
+	let previews = $state<Record<string, LinkPreview | null | 'loading'>>({});
+
+	function extractUrl(content: string): string | null {
+		if (isImageUrl(content.trim()) || isVideoUrl(content.trim())) return null;
+		const m = urlRe.exec(content);
+		urlRe.lastIndex = 0;
+		return m ? m[0] : null;
+	}
+
+	function fetchPreview(url: string) {
+		if (url in previews) return;
+		previews[url] = 'loading';
+		api.unfurl(url).then((p) => {
+			previews[url] = p.title ? p : null;
+		}).catch(() => {
+			previews[url] = null;
+		});
+	}
+
 	function isImageUrl(text: string): boolean {
 		const t = text.trim();
 		return /^\/avatars\/[a-f0-9-]+\.(jpg|jpeg|png|gif|webp|svg)$/i.test(t) ||
@@ -211,7 +231,20 @@
 						<!-- svelte-ignore a11y-media-has-caption -->
 						<video src={msg.content} class="msg-video" controls preload="metadata"></video>
 					{:else}
+						{@const linkUrl = extractUrl(msg.content)}
+						{#if linkUrl}{fetchPreview(linkUrl)}{/if}
 						<p>{#each parseContent(msg.content) as part}{#if part.type === 'mention'}<span class="mention">{part.value}</span>{:else}{part.value}{/if}{/each}</p>
+						{#if linkUrl && previews[linkUrl] && previews[linkUrl] !== 'loading'}
+							{@const pv = previews[linkUrl] as LinkPreview}
+							<div class="link-preview">
+								{#if pv.image}<img class="preview-img" src={pv.image} alt="" loading="lazy" />{/if}
+								<div class="preview-body">
+									{#if pv.site_name}<span class="preview-site">{pv.site_name}</span>{/if}
+									<a class="preview-title" href={pv.url} target="_blank" rel="noopener noreferrer">{pv.title}</a>
+									{#if pv.description}<p class="preview-desc">{pv.description}</p>{/if}
+								</div>
+							</div>
+						{/if}
 					{/if}
 					{#if getReactions(msg).length > 0}
 						<div class="reactions">
@@ -239,7 +272,20 @@
 						<!-- svelte-ignore a11y-media-has-caption -->
 						<video src={msg.content} class="msg-video" controls preload="metadata"></video>
 					{:else}
+						{@const linkUrl = extractUrl(msg.content)}
+						{#if linkUrl}{fetchPreview(linkUrl)}{/if}
 						<p>{#each parseContent(msg.content) as part}{#if part.type === 'mention'}<span class="mention">{part.value}</span>{:else}{part.value}{/if}{/each}</p>
+						{#if linkUrl && previews[linkUrl] && previews[linkUrl] !== 'loading'}
+							{@const pv = previews[linkUrl] as LinkPreview}
+							<div class="link-preview">
+								{#if pv.image}<img class="preview-img" src={pv.image} alt="" loading="lazy" />{/if}
+								<div class="preview-body">
+									{#if pv.site_name}<span class="preview-site">{pv.site_name}</span>{/if}
+									<a class="preview-title" href={pv.url} target="_blank" rel="noopener noreferrer">{pv.title}</a>
+									{#if pv.description}<p class="preview-desc">{pv.description}</p>{/if}
+								</div>
+							</div>
+						{/if}
 					{/if}
 					{#if getReactions(msg).length > 0}
 						<div class="reactions">
@@ -520,6 +566,29 @@
 	}
 	.action-btn:hover { background: var(--border); }
 	.action-btn.delete:hover { background: #e04545; border-color: #e04545; }
+	.link-preview {
+		display: flex;
+		gap: 0.75rem;
+		border: 1px solid var(--border);
+		border-left: 3px solid var(--accent);
+		border-radius: 4px;
+		padding: 0.6rem 0.75rem;
+		margin-top: 0.4rem;
+		max-width: 480px;
+		background: var(--bg-input);
+	}
+	.preview-img {
+		width: 80px;
+		height: 60px;
+		object-fit: cover;
+		border-radius: 3px;
+		flex-shrink: 0;
+	}
+	.preview-body { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+	.preview-site { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+	.preview-title { font-size: 0.85rem; font-weight: 600; color: var(--text); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.preview-title:hover { text-decoration: underline; }
+	.preview-desc { font-size: 0.78rem; color: var(--text-muted); margin: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 	.reactions {
 		display: flex;
 		flex-wrap: wrap;

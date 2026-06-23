@@ -206,6 +206,8 @@
 					<span class="member-name">{m.user.display_name}</span>
 					{#if $gameStatus[m.user.id]}
 						<span class="game-status">🎮 {$gameStatus[m.user.id]}</span>
+					{:else if m.user.custom_status}
+						<span class="game-status">{m.user.custom_status}</span>
 					{/if}
 					<div class="member-badges">
 						<span class="role-badge role-{m.role}">

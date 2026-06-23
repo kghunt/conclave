@@ -9,6 +9,7 @@
 	// Keep form state derived from store so it stays fresh after avatar upload
 	let displayName = $state($currentUser?.display_name ?? '');
 	let bio = $state($currentUser?.bio ?? '');
+	let customStatus = $state($currentUser?.custom_status ?? '');
 	let saving = $state(false);
 	let uploading = $state(false);
 	let fileInput: HTMLInputElement;
@@ -17,13 +18,14 @@
 	$effect(() => {
 		displayName = $currentUser?.display_name ?? '';
 		bio = $currentUser?.bio ?? '';
+		customStatus = $currentUser?.custom_status ?? '';
 	});
 
 	async function save() {
 		if (saving) return;
 		saving = true;
 		try {
-			const updated = await api.updateMe({ display_name: displayName, bio });
+			const updated = await api.updateMe({ display_name: displayName, bio, custom_status: customStatus });
 			currentUser.set(updated);
 			onclose();
 		} finally {
@@ -79,6 +81,10 @@
 		<label>
 			Display name
 			<input bind:value={displayName} />
+		</label>
+		<label>
+			Custom status
+			<input bind:value={customStatus} placeholder="What are you up to?" maxlength="128" />
 		</label>
 		<label>
 			Bio

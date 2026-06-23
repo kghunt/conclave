@@ -50,8 +50,9 @@ func (h *UsersHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 func (h *UsersHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r)
 	var body struct {
-		DisplayName string `json:"display_name"`
-		Bio         string `json:"bio"`
+		DisplayName  string `json:"display_name"`
+		Bio          string `json:"bio"`
+		CustomStatus string `json:"custom_status"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body")
@@ -65,14 +66,18 @@ func (h *UsersHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "bio too long (max 500 characters)")
 		return
 	}
+	if len(body.CustomStatus) > 128 {
+		writeErr(w, http.StatusBadRequest, "custom status too long (max 128 characters)")
+		return
+	}
 
 	var u models.User
 	err := h.db.QueryRow(r.Context(), `
-		UPDATE users SET display_name = $1, bio = $2, updated_at = NOW()
-		WHERE id = $3
-		RETURNING id, email, display_name, bio, avatar_url, created_at, updated_at
-	`, body.DisplayName, body.Bio, userID).Scan(
-		&u.ID, &u.Email, &u.DisplayName, &u.Bio, &u.AvatarURL, &u.CreatedAt, &u.UpdatedAt,
+		UPDATE users SET display_name = $1, bio = $2, custom_status = $3, updated_at = NOW()
+		WHERE id = $4
+		RETURNING id, email, display_name, bio, custom_status, avatar_url, created_at, updated_at
+	`, body.DisplayName, body.Bio, body.CustomStatus, userID).Scan(
+		&u.ID, &u.Email, &u.DisplayName, &u.Bio, &u.CustomStatus, &u.AvatarURL, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "update failed")
@@ -133,9 +138,9 @@ func (h *UsersHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 func (h *UsersHandler) fetchUser(ctx context.Context, id string) (*models.User, error) {
 	var u models.User
 	err := h.db.QueryRow(ctx, `
-		SELECT id, email, display_name, bio, avatar_url, created_at, updated_at
+		SELECT id, email, display_name, bio, custom_status, avatar_url, created_at, updated_at
 		FROM users WHERE id = $1
-	`, id).Scan(&u.ID, &u.Email, &u.DisplayName, &u.Bio, &u.AvatarURL, &u.CreatedAt, &u.UpdatedAt)
+	`, id).Scan(&u.ID, &u.Email, &u.DisplayName, &u.Bio, &u.CustomStatus, &u.AvatarURL, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -145,9 +150,9 @@ func (h *UsersHandler) fetchUser(ctx context.Context, id string) (*models.User, 
 func (h *UsersHandler) fetchPublicUser(ctx context.Context, id string) (*models.User, error) {
 	var u models.User
 	err := h.db.QueryRow(ctx, `
-		SELECT id, display_name, bio, avatar_url, created_at
+		SELECT id, display_name, bio, custom_status, avatar_url, created_at
 		FROM users WHERE id = $1
-	`, id).Scan(&u.ID, &u.DisplayName, &u.Bio, &u.AvatarURL, &u.CreatedAt)
+	`, id).Scan(&u.ID, &u.DisplayName, &u.Bio, &u.CustomStatus, &u.AvatarURL, &u.CreatedAt)
 	if err != nil {
 		return nil, err
 	}

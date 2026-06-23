@@ -1,5 +1,15 @@
 const BASE = '/api';
 
+class ApiError extends Error {
+	status: number;
+	retry_after_seconds?: number;
+	constructor(msg: string, status: number, detail?: Record<string, unknown>) {
+		super(msg);
+		this.status = status;
+		if (detail?.retry_after_seconds) this.retry_after_seconds = detail.retry_after_seconds as number;
+	}
+}
+
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
 	const res = await fetch(BASE + path, {
 		method,
@@ -8,8 +18,8 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 		credentials: 'include'
 	});
 	if (!res.ok) {
-		const err = await res.json().catch(() => ({ error: res.statusText }));
-		throw new Error(err.error ?? res.statusText);
+		const detail = await res.json().catch(() => ({ error: res.statusText }));
+		throw new ApiError(detail.error ?? res.statusText, res.status, detail);
 	}
 	if (res.status === 204) return undefined as T;
 	return res.json();
@@ -21,7 +31,7 @@ export const api = {
 
 	// users
 	me: () => req<User>('GET', '/users/me'),
-	updateMe: (data: { display_name: string; bio: string }) => req<User>('PATCH', '/users/me', data),
+	updateMe: (data: { display_name: string; bio: string; custom_status?: string }) => req<User>('PATCH', '/users/me', data),
 	getUser: (id: string) => req<User>('GET', `/users/${id}`),
 
 	// servers
@@ -50,7 +60,7 @@ export const api = {
 
 	// channels
 	listChannels: (serverId: string) => req<Channel[]>('GET', `/servers/${serverId}/channels`),
-	createChannel: (serverId: string, data: { name: string; description: string; type?: 'text' | 'voice' | 'threads' }) =>
+	createChannel: (serverId: string, data: { name: string; description: string; type?: 'text' | 'voice' | 'threads'; slow_mode_seconds?: number; category?: string }) =>
 		req<Channel>('POST', `/servers/${serverId}/channels`, data),
 	getVoiceState: (serverId: string) =>
 		req<Record<string, VoicePeer[]>>('GET', `/servers/${serverId}/voice`),
@@ -68,8 +78,12 @@ export const api = {
 		req<void>('DELETE', `/threads/${threadId}/messages/${messageId}`),
 	setThreadLocked: (threadId: string, locked: boolean) =>
 		req<void>('PATCH', `/threads/${threadId}/lock`, { locked }),
-	updateChannel: (serverId: string, channelId: string, data: { name?: string; description?: string }) =>
+	updateChannel: (serverId: string, channelId: string, data: { name?: string; description?: string; slow_mode_seconds?: number; category?: string }) =>
 		req<Channel>('PATCH', `/servers/${serverId}/channels/${channelId}`, data),
+	searchMessages: (serverId: string, q: string) =>
+		req<Message[]>('GET', `/servers/${serverId}/search?q=${encodeURIComponent(q)}`),
+	unfurl: (url: string) =>
+		req<LinkPreview>('GET', `/unfurl?url=${encodeURIComponent(url)}`),
 	deleteChannel: (serverId: string, channelId: string) =>
 		req<void>('DELETE', `/servers/${serverId}/channels/${channelId}`),
 	markRead: (serverId: string, channelId: string) =>
@@ -213,6 +227,7 @@ export interface User {
 	display_name: string;
 	bio: string;
 	avatar_url: string;
+	custom_status: string;
 	role_color?: string;
 	is_instance_admin?: boolean;
 	created_at: string;
@@ -323,9 +338,19 @@ export interface Channel {
 	description: string;
 	type: 'text' | 'voice' | 'threads';
 	position: number;
+	slow_mode_seconds: number;
+	category: string;
 	unread_count: number;
 	can_write: boolean;
 	created_at: string;
+}
+
+export interface LinkPreview {
+	url: string;
+	title: string;
+	description: string;
+	image: string;
+	site_name: string;
 }
 
 export interface Thread {

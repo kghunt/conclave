@@ -9,6 +9,7 @@ type User struct {
 	DisplayName     string    `json:"display_name"`
 	Bio             string    `json:"bio"`
 	AvatarURL       string    `json:"avatar_url"`
+	CustomStatus    string    `json:"custom_status"`
 	RoleColor       string    `json:"role_color,omitempty"`
 	IsInstanceAdmin bool      `json:"is_instance_admin,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
@@ -61,15 +62,17 @@ type JoinRequest struct {
 }
 
 type Channel struct {
-	ID          string    `json:"id"`
-	ServerID    string    `json:"server_id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Type        string    `json:"type"` // "text" | "voice"
-	Position    int       `json:"position"`
-	CreatedAt   time.Time `json:"created_at"`
-	UnreadCount int       `json:"unread_count,omitempty"`
-	CanWrite    bool      `json:"can_write"`
+	ID               string    `json:"id"`
+	ServerID         string    `json:"server_id"`
+	Name             string    `json:"name"`
+	Description      string    `json:"description"`
+	Type             string    `json:"type"` // "text" | "voice"
+	Position         int       `json:"position"`
+	SlowModeSeconds  int       `json:"slow_mode_seconds"`
+	Category         string    `json:"category"`
+	CreatedAt        time.Time `json:"created_at"`
+	UnreadCount      int       `json:"unread_count,omitempty"`
+	CanWrite         bool      `json:"can_write"`
 }
 
 type VoicePeer struct {

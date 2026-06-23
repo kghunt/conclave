@@ -15,6 +15,8 @@
 	let newChannelName = $state('');
 	let newChannelDesc = $state('');
 	let newChannelType = $state<'text' | 'voice' | 'threads'>('text');
+	let newChannelCategory = $state('');
+	let collapsedCategories = $state<Set<string>>(new Set());
 
 	// Load initial voice state when switching servers; listen for live updates via server room
 	$effect(() => {
@@ -100,13 +102,30 @@
 
 	async function createChannel() {
 		if (!newChannelName.trim() || !$activeServer) return;
-		const ch = await api.createChannel($activeServer.id, { name: newChannelName, description: newChannelDesc.trim(), type: newChannelType });
+		const ch = await api.createChannel($activeServer.id, {
+			name: newChannelName,
+			description: newChannelDesc.trim(),
+			type: newChannelType,
+			category: newChannelCategory.trim(),
+		});
 		channels.update((prev) => [...prev, ch]);
 		if (ch.type === 'text' || ch.type === 'threads') selectChannel(ch);
 		showNewChannel = false;
 		newChannelName = '';
 		newChannelDesc = '';
 		newChannelType = 'text';
+		newChannelCategory = '';
+	}
+
+	function groupedChannels(type: 'text' | 'voice' | 'threads') {
+		const filtered = $channels.filter((c) => c.type === type);
+		const categories = new Map<string, typeof filtered>();
+		for (const ch of filtered) {
+			const cat = ch.category || '';
+			if (!categories.has(cat)) categories.set(cat, []);
+			categories.get(cat)!.push(ch);
+		}
+		return categories;
 	}
 
 </script>
@@ -156,6 +175,12 @@
 					class="desc-input"
 					onkeydown={(e) => e.key === 'Enter' && createChannel()}
 				/>
+				<input
+					bind:value={newChannelCategory}
+					placeholder="Category (optional, e.g. Gaming)"
+					class="desc-input"
+					onkeydown={(e) => e.key === 'Enter' && createChannel()}
+				/>
 				<div class="new-channel-actions">
 					<button class="cancel-channel-btn" onclick={() => { showNewChannel = false; newChannelName = ''; newChannelDesc = ''; newChannelType = 'text'; }}>Cancel</button>
 					<button class="add-channel-btn" onclick={createChannel}>Add</button>
@@ -163,54 +188,87 @@
 			</div>
 		{/if}
 
-		{#each $channels.filter((c) => c.type === 'text') as ch}
-			{@const isAdmin = $activeServer?.role === 'owner' || $activeServer?.role === 'admin'}
-			<div class="channel-row">
+		{@const isAdmin = $activeServer?.role === 'owner' || $activeServer?.role === 'admin'}
+		{#each [...groupedChannels('text')] as [cat, chs]}
+			{#if cat}
 				<button
-					class="channel-item"
-					class:active={$activeChannel?.id === ch.id}
-					onclick={() => selectChannel(ch)}
+					class="category-header"
+					onclick={() => {
+						const next = new Set(collapsedCategories);
+						if (next.has(cat)) next.delete(cat); else next.add(cat);
+						collapsedCategories = next;
+					}}
 				>
-					<span># {ch.name}</span>
-					{#if !isAdmin && !ch.can_write}
-						<span class="ch-readonly" title="Read-only">🔒</span>
-					{:else if $mentionedChannels.has(ch.id)}
-						<span class="badge mention-badge">@</span>
-					{:else if ch.unread_count > 0}
-						<span class="badge">{ch.unread_count}</span>
-					{/if}
+					<span class="category-arrow">{collapsedCategories.has(cat) ? '▶' : '▼'}</span>
+					{cat}
 				</button>
-				{#if isAdmin}
-					<button class="ch-perms-btn" onclick={() => (permsChannel = ch)} title="Channel permissions">⚙</button>
-					<button class="ch-delete-btn" onclick={() => deleteChannel(ch)} title="Delete channel">✕</button>
-				{/if}
-			</div>
+			{/if}
+			{#if !collapsedCategories.has(cat)}
+				{#each chs as ch}
+					<div class="channel-row" style={cat ? 'padding-left:0.5rem' : ''}>
+						<button
+							class="channel-item"
+							class:active={$activeChannel?.id === ch.id}
+							onclick={() => selectChannel(ch)}
+						>
+							<span># {ch.name}</span>
+							{#if !isAdmin && !ch.can_write}
+								<span class="ch-readonly" title="Read-only">🔒</span>
+							{:else if $mentionedChannels.has(ch.id)}
+								<span class="badge mention-badge">@</span>
+							{:else if ch.unread_count > 0}
+								<span class="badge">{ch.unread_count}</span>
+							{/if}
+						</button>
+						{#if isAdmin}
+							<button class="ch-perms-btn" onclick={() => (permsChannel = ch)} title="Channel permissions">⚙</button>
+							<button class="ch-delete-btn" onclick={() => deleteChannel(ch)} title="Delete channel">✕</button>
+						{/if}
+					</div>
+				{/each}
+			{/if}
 		{/each}
 
 		{#if $channels.some((c) => c.type === 'threads')}
 			<div class="section-label" style="margin-top: 0.5rem">
 				<span>Thread Channels</span>
 			</div>
-			{#each $channels.filter((c) => c.type === 'threads') as ch}
-				{@const isAdmin = $activeServer?.role === 'owner' || $activeServer?.role === 'admin'}
-				<div class="channel-row">
+			{#each [...groupedChannels('threads')] as [cat, chs]}
+				{#if cat}
 					<button
-						class="channel-item"
-						class:active={$activeChannel?.id === ch.id}
-						onclick={() => selectChannel(ch)}
+						class="category-header"
+						onclick={() => {
+							const next = new Set(collapsedCategories);
+							if (next.has('t:'+cat)) next.delete('t:'+cat); else next.add('t:'+cat);
+							collapsedCategories = next;
+						}}
 					>
-						<span>💬 {ch.name}</span>
-						{#if !isAdmin && !ch.can_write}
-							<span class="ch-readonly" title="Read-only">🔒</span>
-						{:else if ch.unread_count > 0}
-							<span class="badge">{ch.unread_count}</span>
-						{/if}
+						<span class="category-arrow">{collapsedCategories.has('t:'+cat) ? '▶' : '▼'}</span>
+						{cat}
 					</button>
-					{#if isAdmin}
-						<button class="ch-perms-btn" onclick={() => (permsChannel = ch)} title="Channel permissions">⚙</button>
-						<button class="ch-delete-btn" onclick={() => deleteChannel(ch)} title="Delete channel">✕</button>
-					{/if}
-				</div>
+				{/if}
+				{#if !collapsedCategories.has('t:'+cat)}
+					{#each chs as ch}
+						<div class="channel-row">
+							<button
+								class="channel-item"
+								class:active={$activeChannel?.id === ch.id}
+								onclick={() => selectChannel(ch)}
+							>
+								<span>💬 {ch.name}</span>
+								{#if !isAdmin && !ch.can_write}
+									<span class="ch-readonly" title="Read-only">🔒</span>
+								{:else if ch.unread_count > 0}
+									<span class="badge">{ch.unread_count}</span>
+								{/if}
+							</button>
+							{#if isAdmin}
+								<button class="ch-perms-btn" onclick={() => (permsChannel = ch)} title="Channel permissions">⚙</button>
+								<button class="ch-delete-btn" onclick={() => deleteChannel(ch)} title="Delete channel">✕</button>
+							{/if}
+						</div>
+					{/each}
+				{/if}
 			{/each}
 		{/if}
 
@@ -372,6 +430,24 @@
 		justify-content: space-between;
 		font-size: 0.95rem;
 	}
+	.category-header {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		width: 100%;
+		background: none;
+		border: none;
+		cursor: pointer;
+		padding: 0.6rem 0.75rem 0.15rem;
+		font-size: 0.7rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		color: var(--text-muted);
+		letter-spacing: 0.05em;
+		text-align: left;
+	}
+	.category-header:hover { color: var(--text); }
+	.category-arrow { font-size: 0.6rem; }
 	.section-label {
 		display: flex;
 		align-items: center;

@@ -5,6 +5,7 @@ import {
 	Track,
 	type RemoteParticipant,
 	LocalAudioTrack,
+	createLocalScreenTracks,
 } from 'livekit-client';
 import { socket } from './socket';
 import type { VoicePeer } from './api';
@@ -22,6 +23,7 @@ export interface VoiceState {
 	label: string;              // display name in VoicePanel
 	serverId: string | null;
 	muted: boolean;
+	screenSharing: boolean;
 	connecting: boolean;
 	peers: VoicePeer[];
 	micGain: number;
@@ -46,6 +48,7 @@ const DEFAULT_VOICE: VoiceState = {
 	label: '',
 	serverId: null,
 	muted: false,
+	screenSharing: false,
 	connecting: false,
 	peers: [],
 	micGain: 1,
@@ -604,3 +607,32 @@ async function restartMic() {
 }
 
 export function setVADThreshold(_value: number) {}
+
+export async function toggleScreenShare() {
+	if (!livekitRoom) return;
+	const cur = get(voiceState);
+	if (cur.screenSharing) {
+		// Stop all screen tracks.
+		for (const pub of livekitRoom.localParticipant.videoTrackPublications.values()) {
+			if (pub.source === Track.Source.ScreenShare) {
+				await livekitRoom.localParticipant.unpublishTrack(pub.videoTrack!);
+				pub.videoTrack?.stop();
+			}
+		}
+		voiceState.update((s) => ({ ...s, screenSharing: false }));
+	} else {
+		try {
+			const tracks = await createLocalScreenTracks({ audio: false });
+			for (const track of tracks) {
+				await livekitRoom.localParticipant.publishTrack(track);
+				track.mediaStreamTrack.addEventListener('ended', () => {
+					livekitRoom?.localParticipant.unpublishTrack(track);
+					voiceState.update((s) => ({ ...s, screenSharing: false }));
+				});
+			}
+			voiceState.update((s) => ({ ...s, screenSharing: true }));
+		} catch {
+			// User cancelled screen pick or permission denied — no-op.
+		}
+	}
+}
