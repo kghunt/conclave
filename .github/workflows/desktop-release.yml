@@ -71,7 +71,7 @@ jobs:
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#desktop-v}"
-          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" desktop/src-tauri/Cargo.toml
+          perl -i -pe "s/^version = \".*\"/version = \"$VERSION\"/" desktop/src-tauri/Cargo.toml
 
       - name: Build
         uses: tauri-apps/tauri-action@v0
