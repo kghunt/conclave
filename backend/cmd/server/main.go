@@ -54,7 +54,6 @@ func main() {
 	channelsH := handlers.NewChannels(pool, hub)
 	threadsH := handlers.NewThreads(pool, hub)
 	pushH := handlers.NewPush(pool, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDEmail)
-	presenceH := handlers.NewPresence(pool, hub)
 	friendsH := handlers.NewFriends(pool, hub)
 	messagesH := handlers.NewMessages(pool, hub, pushH, cfg.AvatarDir, cfg.BaseURL)
 	dmsH := handlers.NewDMs(pool, hub, pushH, cfg.AvatarDir, cfg.BaseURL)
@@ -86,7 +85,6 @@ func main() {
 	r.Post("/api/auth/logout", authH.Logout)
 	r.Post("/api/auth/register", authH.Register)
 	r.Post("/api/auth/local-login", authH.LocalLogin)
-	r.Post("/api/presence/heartbeat", presenceH.Heartbeat) // Bearer token, no cookie auth
 	r.Get("/api/invites/{code}", serversH.GetInvite)
 
 	// websocket
@@ -94,26 +92,6 @@ func main() {
 
 	// serve avatars
 	r.Handle("/avatars/*", http.StripPrefix("/avatars/", http.FileServer(http.Dir(cfg.AvatarDir))))
-
-	// serve desktop app downloads (admin populates ./data/downloads/)
-	downloadsDir := filepath.Join(filepath.Dir(cfg.AvatarDir), "downloads")
-	r.Handle("/downloads/*", http.StripPrefix("/downloads/", http.FileServer(http.Dir(downloadsDir))))
-
-	// desktop app availability (public — used by the connect UI)
-	r.Get("/api/downloads", func(w http.ResponseWriter, r *http.Request) {
-		available := map[string]bool{}
-		for _, name := range []string{
-			"conclave-presence-windows-x64.exe",
-			"conclave-presence-macos-x64.dmg",
-			"conclave-presence-macos-arm64.dmg",
-			"conclave-presence-linux-x64.AppImage",
-		} {
-			_, err := os.Stat(filepath.Join(downloadsDir, name))
-			available[name] = err == nil
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(available)
-	})
 
 	r.Group(func(r chi.Router) {
 		r.Use(apimiddleware.Auth(authSvc, pool))
@@ -218,11 +196,6 @@ func main() {
 
 		// user-accessible registration invite (rate-limited, 1-use/1-day)
 		r.Post("/api/registration-invite", adminH.GenerateUserInvite)
-
-		// desktop presence companion
-		r.Post("/api/presence/token", presenceH.GenerateToken)
-		r.Delete("/api/presence/token", presenceH.RevokeToken)
-		r.Get("/api/presence/token", presenceH.HasToken)
 
 		// instance admin
 		r.Get("/api/admin/settings", adminH.GetSettings)
