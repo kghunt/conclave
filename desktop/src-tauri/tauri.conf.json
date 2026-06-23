@@ -5,17 +5,6 @@
     "frontendDist": "../ui"
   },
   "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "Conclave",
-        "width": 1280,
-        "height": 800,
-        "minWidth": 900,
-        "minHeight": 600,
-        "visible": false
-      }
-    ],
     "security": {
       "csp": null
     }
