@@ -243,6 +243,7 @@ func (h *AdminHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		"google_auth_enabled":       getSetting("google_auth_enabled") != "false",
 		"local_auth_enabled":        getSetting("local_auth_enabled") != "false",
 		"registration_mode":         regMode,
+		"desktop_download_url":      getSetting("desktop_download_url"),
 	})
 }
 

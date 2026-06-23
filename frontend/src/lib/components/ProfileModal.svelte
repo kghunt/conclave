@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { api } from '$lib/api';
-	import { currentUser, notifPrefs } from '$lib/stores';
+	import { currentUser, notifPrefs, instanceConfig } from '$lib/stores';
 	import { playMessageSound, playMentionSound, playDMSound } from '$lib/sounds';
 	import { defaultAvatarUrl } from '$lib/avatar';
 
@@ -139,6 +139,14 @@
 				</button>
 			</div>
 		</div>
+
+		{#if $instanceConfig.desktop_download_url}
+			<div class="desktop-section">
+				<a class="desktop-btn" href={$instanceConfig.desktop_download_url} target="_blank" rel="noopener noreferrer">
+					Download Desktop App ↓
+				</a>
+			</div>
+		{/if}
 
 		<div class="actions">
 			<button onclick={onclose} class="cancel">Cancel</button>
@@ -317,4 +325,21 @@
 		display: block;
 	}
 	.toggle.on .knob { transform: translateX(16px); }
+	.desktop-section {
+		border-top: 1px solid var(--border);
+		padding-top: 0.75rem;
+	}
+	.desktop-btn {
+		display: block;
+		width: 100%;
+		padding: 0.6rem;
+		border-radius: 6px;
+		background: var(--accent);
+		color: white;
+		text-align: center;
+		text-decoration: none;
+		font-size: 0.875rem;
+		font-weight: 600;
+	}
+	.desktop-btn:hover { opacity: 0.85; }
 </style>

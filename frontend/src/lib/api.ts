@@ -232,6 +232,7 @@ export interface InstanceConfig {
 	google_auth_enabled: boolean;
 	local_auth_enabled: boolean;
 	registration_mode: 'open' | 'invite' | 'closed';
+	desktop_download_url?: string;
 }
 
 export interface RegistrationInvite {
