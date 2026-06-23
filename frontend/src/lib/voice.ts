@@ -15,6 +15,8 @@ import { voiceParticipants, currentUser } from './stores';
 
 export interface VoiceState {
 	channelId: string | null;   // set for channel calls
+	subChannelId: string | null; // set when inside a breakout sub-channel
+	subChannelName: string | null;
 	dmConvId: string | null;    // set for DM calls
 	dmPeerUserId: string | null;
 	label: string;              // display name in VoicePanel
@@ -37,6 +39,8 @@ export interface CallState {
 
 const DEFAULT_VOICE: VoiceState = {
 	channelId: null,
+	subChannelId: null,
+	subChannelName: null,
 	dmConvId: null,
 	dmPeerUserId: null,
 	label: '',
@@ -65,6 +69,8 @@ let gainNode: GainNode | null = null;
 let localAnalyser: AnalyserNode | null = null;
 let localAudioTrack: LocalAudioTrack | null = null;
 let channelId: string | null = null;
+let subChannelId: string | null = null;
+let subChannelName: string | null = null;
 let dmConvId: string | null = null;
 let dmPeerUserId: string | null = null;
 let wsUnsubscribe: (() => void) | null = null;
@@ -276,7 +282,9 @@ export async function joinVoice(chId: string, srvId: string): Promise<void> {
 	}
 
 	channelId = chId;
-	voiceState.update((s) => ({ ...s, channelId: chId, dmConvId: null, label: '', serverId: srvId }));
+	subChannelId = null;
+	subChannelName = null;
+	voiceState.update((s) => ({ ...s, channelId: chId, subChannelId: null, subChannelName: null, dmConvId: null, label: '', serverId: srvId }));
 
 	startLocalVAD();
 	socket.subscribe('channel:' + chId);
@@ -299,6 +307,71 @@ export async function joinVoice(chId: string, srvId: string): Promise<void> {
 	}
 
 	playSelfJoinSound();
+}
+
+// ── Public: voice sub-channels (breakout rooms) ───────────────────────────────
+
+export function createVoiceSub(chId: string, name: string) {
+	socket.send('voice.sub.create', { channel_id: chId, name });
+}
+
+export async function joinVoiceSub(chId: string, srvId: string, subId: string, name: string): Promise<void> {
+	// Leave current voice context (disconnects LiveKit, sends voice.leave if in main channel).
+	leaveVoice();
+
+	voiceState.update((s) => ({ ...s, connecting: true }));
+
+	let livekitToken: string, livekitURL: string;
+	try {
+		const res = await fetch(`/api/voice/token?channel=${chId}&sub=${subId}`);
+		if (!res.ok) throw new Error(await res.text());
+		({ token: livekitToken, url: livekitURL } = await res.json());
+	} catch (e: any) {
+		voiceState.update((s) => ({ ...s, connecting: false }));
+		throw new Error(e.message ?? 'Failed to get sub-channel token');
+	}
+
+	try {
+		await acquireMic();
+	} catch {
+		voiceState.update((s) => ({ ...s, connecting: false }));
+		throw new Error('Microphone access denied');
+	}
+
+	channelId = chId;
+	subChannelId = subId;
+	subChannelName = name;
+	voiceState.update((s) => ({
+		...s, channelId: chId, subChannelId: subId, subChannelName: name,
+		dmConvId: null, label: name, serverId: srvId,
+	}));
+
+	// Notify server we joined the sub (for participant tracking in voice.sub.state).
+	socket.subscribe('channel:' + chId);
+	wsUnsubscribe = socket.on(() => {});
+	socket.send('voice.sub.join', { channel_id: chId, sub_id: subId });
+
+	startLocalVAD();
+	await connectToRoom(livekitURL, livekitToken, chId);
+
+	const initialPeers = peersFromRoom();
+	voiceState.update((s) => ({ ...s, connecting: false, peers: initialPeers }));
+	playSelfJoinSound();
+}
+
+export function leaveVoiceSub(chId: string, subId: string, srvId: string) {
+	const sid = subId;
+	subChannelId = null;
+	subChannelName = null;
+	socket.send('voice.sub.leave', { channel_id: chId, sub_id: sid });
+	// Disconnect LiveKit sub room, then rejoin the main channel.
+	livekitRoom?.disconnect();
+	livekitRoom = null;
+	localAudioTrack?.stop();
+	localAudioTrack = null;
+	stopLocalVAD();
+	// Rejoin main channel audio.
+	joinVoice(chId, srvId);
 }
 
 // ── Public: DM call ───────────────────────────────────────────────────────────

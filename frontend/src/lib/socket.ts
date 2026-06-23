@@ -37,7 +37,23 @@ export type WSEvent =
 	| { type: 'call.accepted'; payload: { conv_id: string; from_user_id: string; from_display_name: string } }
 	| { type: 'call.declined'; payload: { conv_id: string } }
 	| { type: 'call.ended'; payload: { conv_id: string } }
-	| { type: 'call.cancelled'; payload: { conv_id: string } };
+	| { type: 'call.cancelled'; payload: { conv_id: string } }
+	| { type: 'voice.sub.state'; payload: { channel_id: string; subs: VoiceSubInfo[] } }
+	| { type: 'voice.sub.created'; payload: { channel_id: string; sub_id: string; name: string } }
+	| { type: 'voice.sub.closed'; payload: { channel_id: string; sub_id: string } };
+
+export interface VoiceSubParticipant {
+	user_id: string;
+	display_name: string;
+	avatar_url: string;
+}
+
+export interface VoiceSubInfo {
+	id: string;
+	name: string;
+	creator_id: string;
+	participants: VoiceSubParticipant[];
+}
 
 type Handler = (event: WSEvent) => void;
 

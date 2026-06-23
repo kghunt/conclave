@@ -24,6 +24,7 @@ func NewVoice(db *pgxpool.Pool, url, key, secret string) *VoiceHandler {
 func (h *VoiceHandler) Token(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserID(r)
 	channelID := r.URL.Query().Get("channel")
+	subID := r.URL.Query().Get("sub")
 	if channelID == "" {
 		writeErr(w, http.StatusBadRequest, "channel required")
 		return
@@ -49,10 +50,15 @@ func (h *VoiceHandler) Token(w http.ResponseWriter, r *http.Request) {
 
 	meta, _ := json.Marshal(map[string]string{"avatar_url": avatarURL})
 
+	room := "channel:" + channelID
+	if subID != "" {
+		room = "channel:" + channelID + ":sub:" + subID
+	}
+
 	at := lkauth.NewAccessToken(h.livekitKey, h.livekitSecret).
 		AddGrant(&lkauth.VideoGrant{
 			RoomJoin: true,
-			Room:     "channel:" + channelID,
+			Room:     room,
 		}).
 		SetIdentity(userID).
 		SetName(displayName).

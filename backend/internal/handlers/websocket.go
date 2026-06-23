@@ -238,7 +238,101 @@ func (h *WSHandler) onEvent(c *ws.Client, event ws.Event) {
 		cancelPayload, _ := json.Marshal(map[string]string{"conv_id": body.ConvID})
 		h.hub.Broadcast("user:"+body.ToUserID, ws.Event{Type: "call.cancelled", Payload: cancelPayload})
 
+	case "voice.sub.create":
+		var body struct {
+			ChannelID string `json:"channel_id"`
+			Name      string `json:"name"`
+		}
+		if err := json.Unmarshal(event.Payload, &body); err != nil || body.ChannelID == "" {
+			return
+		}
+		if !c.HasRoom("channel:" + body.ChannelID) {
+			return
+		}
+		if body.Name == "" {
+			body.Name = "Sub-channel"
+		}
+		var serverID, displayName, avatarURL string
+		h.db.QueryRow(context.Background(), `SELECT server_id FROM channels WHERE id = $1`, body.ChannelID).Scan(&serverID)
+		h.db.QueryRow(context.Background(), `SELECT display_name, COALESCE(avatar_url,'') FROM users WHERE id = $1`, c.UserID()).
+			Scan(&displayName, &avatarURL)
+		peer := ws.VoiceSubParticipant{UserID: c.UserID(), DisplayName: displayName, AvatarURL: avatarURL}
+		sub := h.hub.VoiceSubCreate(body.ChannelID, serverID, c.UserID(), body.Name, peer, c)
+		// Tell the creator which sub ID was assigned so the frontend can request a token.
+		createdPayload, _ := json.Marshal(map[string]string{
+			"channel_id": body.ChannelID,
+			"sub_id":     sub.ID,
+			"name":       sub.Name,
+		})
+		data, _ := json.Marshal(ws.Event{Type: "voice.sub.created", Payload: createdPayload})
+		c.SendRaw(data)
+		h.broadcastSubState(body.ChannelID, serverID)
+
+	case "voice.sub.join":
+		var body struct {
+			ChannelID string `json:"channel_id"`
+			SubID     string `json:"sub_id"`
+		}
+		if err := json.Unmarshal(event.Payload, &body); err != nil || body.ChannelID == "" || body.SubID == "" {
+			return
+		}
+		if !c.HasRoom("channel:" + body.ChannelID) {
+			return
+		}
+		var serverID, displayName, avatarURL string
+		h.db.QueryRow(context.Background(), `SELECT server_id FROM channels WHERE id = $1`, body.ChannelID).Scan(&serverID)
+		h.db.QueryRow(context.Background(), `SELECT display_name, COALESCE(avatar_url,'') FROM users WHERE id = $1`, c.UserID()).
+			Scan(&displayName, &avatarURL)
+		peer := ws.VoiceSubParticipant{UserID: c.UserID(), DisplayName: displayName, AvatarURL: avatarURL}
+		if _, ok := h.hub.VoiceSubJoin(body.ChannelID, body.SubID, c.UserID(), peer, c); !ok {
+			return
+		}
+		h.broadcastSubState(body.ChannelID, serverID)
+
+	case "voice.sub.leave":
+		var body struct {
+			ChannelID string `json:"channel_id"`
+			SubID     string `json:"sub_id"`
+		}
+		if err := json.Unmarshal(event.Payload, &body); err != nil || body.ChannelID == "" || body.SubID == "" {
+			return
+		}
+		sub, wasClosed, _ := h.hub.VoiceSubLeave(body.ChannelID, body.SubID, c.UserID())
+		serverID := ""
+		if sub != nil {
+			serverID = sub.ServerID
+		}
+		if wasClosed && serverID != "" {
+			closedPayload, _ := json.Marshal(map[string]string{"channel_id": body.ChannelID, "sub_id": body.SubID})
+			h.hub.Broadcast("server:"+serverID, ws.Event{Type: "voice.sub.closed", Payload: closedPayload})
+		} else if serverID != "" {
+			h.broadcastSubState(body.ChannelID, serverID)
+		}
+
+	case "voice.sub.close":
+		var body struct {
+			ChannelID string `json:"channel_id"`
+			SubID     string `json:"sub_id"`
+		}
+		if err := json.Unmarshal(event.Payload, &body); err != nil || body.ChannelID == "" || body.SubID == "" {
+			return
+		}
+		serverID, _ := h.hub.VoiceSubClose(body.ChannelID, body.SubID)
+		if serverID != "" {
+			closedPayload, _ := json.Marshal(map[string]string{"channel_id": body.ChannelID, "sub_id": body.SubID})
+			h.hub.Broadcast("server:"+serverID, ws.Event{Type: "voice.sub.closed", Payload: closedPayload})
+		}
+
 	}
+}
+
+func (h *WSHandler) broadcastSubState(channelID, serverID string) {
+	if serverID == "" {
+		return
+	}
+	subs := h.hub.GetVoiceSubsSnapshot(channelID)
+	payload, _ := json.Marshal(map[string]any{"channel_id": channelID, "subs": subs})
+	h.hub.Broadcast("server:"+serverID, ws.Event{Type: "voice.sub.state", Payload: payload})
 }
 
 func (h *WSHandler) fetchVoicePeers(userIDs []string) []map[string]string {

@@ -46,3 +46,4 @@ export const serverUnread = writable<Record<string, boolean>>({}); // serverId �
 export const joinRequestPending = writable<Set<string>>(new Set()); // serverIds with new join requests
 export const homeMode = writable(false); // true when viewing DMs/Friends panel
 export const gameStatus = writable<Record<string, string>>({}); // userId → game name
+export const voiceSubState = writable<Record<string, import('./socket').VoiceSubInfo[]>>({}); // channelId → subs
