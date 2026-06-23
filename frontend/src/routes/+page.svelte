@@ -27,6 +27,10 @@
 	let descInput = $state('');
 
 	onMount(() => {
+		// Prevent the browser from suspending this tab. The never-resolving promise
+		// holds the Web Lock for the lifetime of the page.
+		navigator.locks?.request('conclave-active', { mode: 'shared' }, () => new Promise(() => {}));
+
 		const mq = window.matchMedia('(max-width: 767px)');
 		isMobile = mq.matches;
 		const handler = (e: MediaQueryListEvent) => { isMobile = e.matches; };
@@ -152,11 +156,13 @@
 		return () => { unsub(); socket.unsubscribe(room); };
 	});
 
-	// Send presence events when page visibility changes (away/online)
+	// Send presence events when page visibility changes; reconnect socket if
+	// the browser suspended the tab while it was hidden.
 	$effect(() => {
 		if (!$currentUser) return;
 		function onVisibility() {
 			socket.send('presence', { status: document.hidden ? 'away' : 'online' });
+			if (!document.hidden) socket.connect();
 		}
 		document.addEventListener('visibilitychange', onVisibility);
 		return () => document.removeEventListener('visibilitychange', onVisibility);
