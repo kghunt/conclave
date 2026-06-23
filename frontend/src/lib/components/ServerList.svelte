@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { api, type Server } from '$lib/api';
-	import { servers, activeServer, channels, activeChannel, activeDM, instanceConfig, currentUser, serverUnread, homeMode, friendRequests } from '$lib/stores';
+	import { servers, activeServer, channels, activeChannel, activeDM, instanceConfig, currentUser, serverUnread, joinRequestPending, homeMode, friendRequests } from '$lib/stores';
 	import ServerContextMenu from './ServerContextMenu.svelte';
 	import SpaceBrowser from './SpaceBrowser.svelte';
 
@@ -107,8 +107,8 @@
 					{s.name.slice(0, 2).toUpperCase()}
 				{/if}
 			</button>
-			{#if $serverUnread[s.id] && $activeServer?.id !== s.id}
-				<span class="unread-dot"></span>
+			{#if ($serverUnread[s.id] || $joinRequestPending.has(s.id)) && $activeServer?.id !== s.id}
+				<span class="unread-dot" class:join-request={$joinRequestPending.has(s.id) && !$serverUnread[s.id]}></span>
 			{/if}
 		</div>
 	{/each}
@@ -176,6 +176,7 @@
 		background: #e04545;
 		pointer-events: none;
 	}
+	.unread-dot.join-request { background: #f5a623; }
 	.server-list {
 		width: 72px;
 		background: #0e0e10;

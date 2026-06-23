@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api, type ServerMember, type JoinRequest, type SpaceRole } from '$lib/api';
-	import { activeServer, currentUser, activeDM, activeChannel, dmConversations, friends, pendingJoinRequests, gameStatus } from '$lib/stores';
+	import { activeServer, currentUser, activeDM, activeChannel, dmConversations, friends, pendingJoinRequests, joinRequestPending, gameStatus } from '$lib/stores';
 	import { socket } from '$lib/socket';
 	import Avatar from './Avatar.svelte';
 
@@ -19,7 +19,11 @@
 
 	onMount(() => {
 		load();
-		api.listJoinRequests(serverId).then((reqs) => pendingJoinRequests.set(reqs ?? [])).catch(() => {});
+		api.listJoinRequests(serverId).then((reqs) => {
+			pendingJoinRequests.set(reqs ?? []);
+			// Clear the notification badge now that the admin has opened this space.
+			joinRequestPending.update((s) => { const n = new Set(s); n.delete(serverId); return n; });
+		}).catch(() => {});
 	});
 
 	// Subscribe to server-level room and reload on membership changes

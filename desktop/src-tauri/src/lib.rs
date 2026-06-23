@@ -39,6 +39,7 @@ pub fn run() {
     let cfg_bg = cfg.clone();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
         .plugin(tauri_plugin_deep_link::init())
         .manage(AppState { config: cfg })
         .setup(move |app| {

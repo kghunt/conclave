@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api, type Message, type DirectMessage, type MessageReply, type Thread, type Reaction } from '$lib/api';
 	import { socket } from '$lib/socket';
-	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent, instanceConfig, serverMembers, mentionedChannels, presenceMap, gameStatus, notifPrefs, serverUnread, homeMode, pendingJoinRequests } from '$lib/stores';
+	import { currentUser, servers, activeServer, channels, activeChannel, dmConversations, activeDM, showProfileModal, friends, friendRequests, friendRequestsSent, instanceConfig, serverMembers, mentionedChannels, presenceMap, gameStatus, notifPrefs, serverUnread, joinRequestPending, homeMode, pendingJoinRequests } from '$lib/stores';
 	import { playMessageSound, playMentionSound, playDMSound } from '$lib/sounds';
 	import { handleIncomingCall, handleCallAccepted, handleCallDeclined, handleCallEnded, handleCallCancelled } from '$lib/voice';
 	import CallNotification from '$lib/components/CallNotification.svelte';
@@ -426,11 +426,18 @@
 					return [...updated].sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime());
 				});
 			}
-			if (event.type === 'join_request.new' && event.payload.server_id === $activeServer?.id) {
-				pendingJoinRequests.update((prev) => {
-					if (prev.find((r) => r.id === event.payload.request_id)) return prev;
-					return [...prev, { id: event.payload.request_id, server_id: event.payload.server_id, user: event.payload.user, status: 'pending', created_at: new Date().toISOString() }];
-				});
+			if (event.type === 'join_request.new') {
+				const sid = event.payload.server_id;
+				// Always mark the server as having a pending request (drives badge in server list).
+				joinRequestPending.update((s) => new Set([...s, sid]));
+				serverUnread.update((m) => ({ ...m, [sid]: true }));
+				// If the admin is currently viewing that space, also add it to the live list.
+				if (sid === $activeServer?.id) {
+					pendingJoinRequests.update((prev) => {
+						if (prev.find((r) => r.id === event.payload.request_id)) return prev;
+						return [...prev, { id: event.payload.request_id, server_id: sid, user: event.payload.user, status: 'pending', created_at: new Date().toISOString() }];
+					});
+				}
 			}
 			if (event.type === 'member.kicked' || event.type === 'member.banned') {
 				const sid = event.payload.server_id;
