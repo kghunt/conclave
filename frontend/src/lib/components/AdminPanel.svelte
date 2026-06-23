@@ -309,6 +309,17 @@
 				</div>
 				<p class="hint">Maximum size for video file uploads (mp4, webm, mov). Set to 0 to disable video uploads. Default is 50MB.</p>
 			</div>
+
+			<div class="setting">
+				<label for="desktop-url">Desktop app download URL</label>
+				<input
+					id="desktop-url"
+					type="url"
+					bind:value={settings.desktop_download_url}
+					placeholder="https://github.com/…/releases/latest/download/conclave-desktop-linux-x64.AppImage"
+				/>
+				<p class="hint">If set, users will see a "Download Desktop App" button in their profile. Leave blank to hide it.</p>
+			</div>
 		</section>
 
 		<section>
