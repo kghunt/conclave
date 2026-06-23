@@ -16,19 +16,19 @@ jobs:
         include:
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-            asset_name: conclave-presence-linux-x64.AppImage
+            asset_name: conclave-desktop-linux-x64.AppImage
             bundle_glob: "desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage"
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            asset_name: conclave-presence-windows-x64.exe
+            asset_name: conclave-desktop-windows-x64.exe
             bundle_glob: "desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe"
           - os: macos-latest
             target: x86_64-apple-darwin
-            asset_name: conclave-presence-macos-x64.dmg
+            asset_name: conclave-desktop-macos-x64.dmg
             bundle_glob: "desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg"
           - os: macos-latest
             target: aarch64-apple-darwin
-            asset_name: conclave-presence-macos-arm64.dmg
+            asset_name: conclave-desktop-macos-arm64.dmg
             bundle_glob: "desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg"
 
     runs-on: ${{ matrix.os }}
@@ -82,12 +82,11 @@ jobs:
         with:
           projectPath: desktop
           tagName: ${{ github.ref_name }}
-          releaseName: 'Conclave Presence ${{ github.ref_name }}'
+          releaseName: 'Conclave Desktop ${{ github.ref_name }}'
           releaseBody: |
-            Desktop presence companion for Conclave.
+            Native desktop client for Conclave.
 
-            **Self-hosting:** copy the file for your platform into `./data/downloads/` on your server
-            and Conclave will serve it directly to your users from Edit Profile.
+            Download the file for your platform, install it, and enter your Conclave instance URL on first launch.
           iconPath: desktop/src-tauri/icons/1024x1024.png
           args: --target ${{ matrix.target }}
 
