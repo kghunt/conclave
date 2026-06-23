@@ -4,6 +4,7 @@
 	import { callFriend } from '$lib/voice';
 	import Avatar from './Avatar.svelte';
 	import UserBar from './UserBar.svelte';
+	import VoicePanel from './VoicePanel.svelte';
 
 	let showAddFriend = $state(false);
 	let friendSearch = $state('');
@@ -239,6 +240,7 @@
 	{/if}
 
 </div><!-- end sidebar-scroll -->
+<VoicePanel />
 <UserBar />
 </aside>
 
