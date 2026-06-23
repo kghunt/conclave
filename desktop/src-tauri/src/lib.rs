@@ -33,7 +33,7 @@ fn get_instance_url(state: tauri::State<AppState>) -> String {
 fn navigate_to_instance(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
     let parsed = url::Url::parse(url).map_err(|e| e.to_string())?;
     if let Some(win) = app.get_webview_window("main") {
-        win.navigate(parsed);
+        let _ = win.navigate(parsed);
         win.show().ok();
         win.set_focus().ok();
     }
