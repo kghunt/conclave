@@ -1,5 +1,5 @@
 {
-  "name": "conclave-presence",
+  "name": "conclave-desktop",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,8 +9,5 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
-  },
-  "dependencies": {
-    "@tauri-apps/api": "^2"
   }
 }

@@ -1,10 +1,12 @@
 {
   "identifier": "default",
-  "description": "Default permissions for the Conclave presence companion",
+  "description": "Default capabilities for the Conclave desktop client",
   "platforms": ["linux", "macOS", "windows"],
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "deep-link:default"
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-is-registered"
   ]
 }

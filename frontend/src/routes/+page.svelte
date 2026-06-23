@@ -27,9 +27,23 @@
 	let descInput = $state('');
 
 	onMount(() => {
-		// Prevent the browser from suspending this tab. The never-resolving promise
-		// holds the Web Lock for the lifetime of the page.
+		// Prevent the browser from suspending this tab.
 		navigator.locks?.request('conclave-active', { mode: 'shared' }, () => new Promise(() => {}));
+
+		// Desktop app bridge — receive game detection and shortcut events injected
+		// by the Tauri Rust layer via webview.eval().
+		if ((window as any).__TAURI_DESKTOP__) {
+			window.addEventListener('conclave-game', (e) => {
+				const game: string | null = (e as CustomEvent).detail;
+				socket.send('game.status', { game: game ?? '' });
+			});
+			window.addEventListener('conclave-shortcut', (e) => {
+				const action: string = (e as CustomEvent).detail;
+				if (action === 'mute') {
+					import('$lib/voice').then(({ toggleMute }) => toggleMute());
+				}
+			});
+		}
 
 		const mq = window.matchMedia('(max-width: 767px)');
 		isMobile = mq.matches;
