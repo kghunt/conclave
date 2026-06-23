@@ -26,7 +26,10 @@
 	let newGameProcs = $state('');
 
 	if (isDesktop) {
-		tauri.invoke('get_games').then((g: GameEntry[]) => { games = g; gamesLoaded = true; });
+		tauri?.invoke('get_games')
+			.then((g: GameEntry[]) => { games = g; })
+			.catch(() => { games = []; })
+			.finally(() => { gamesLoaded = true; });
 	}
 
 	async function saveGames() {
