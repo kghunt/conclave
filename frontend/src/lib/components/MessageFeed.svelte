@@ -16,7 +16,7 @@
 		$serverMembers.map(m => m.user.display_name.replace(/\s+/g, '_').toLowerCase())
 	));
 
-	type ContentPart = { type: 'text' | 'mention'; value: string };
+	type ContentPart = { type: 'text' | 'mention' | 'link'; value: string };
 
 	const EMOTICONS: [RegExp, string][] = [
 		[/<3/g,    '❤️'],
@@ -36,15 +36,18 @@
 	function parseContent(text: string): ContentPart[] {
 		const parts: ContentPart[] = [];
 		let last = 0;
-		const re = /@(\w+)/g;
+		const re = /(@\w+)|((https?:\/\/)[^\s<>"']+)/g;
 		let m: RegExpExecArray | null;
 		while ((m = re.exec(text)) !== null) {
 			if (m.index > last) parts.push({ type: 'text', value: applyEmoticons(text.slice(last, m.index)) });
-			parts.push(
-				memberHandles.has(m[1].toLowerCase())
-					? { type: 'mention', value: m[0] }
-					: { type: 'text', value: m[0] }
-			);
+			if (m[1]) {
+				const handle = m[1].slice(1);
+				parts.push(memberHandles.has(handle.toLowerCase())
+					? { type: 'mention', value: m[1] }
+					: { type: 'text', value: m[1] });
+			} else {
+				parts.push({ type: 'link', value: m[2] });
+			}
 			last = m.index + m[0].length;
 		}
 		if (last < text.length) parts.push({ type: 'text', value: applyEmoticons(text.slice(last)) });
@@ -236,7 +239,7 @@
 						<video src={msg.content} class="msg-video" controls preload="metadata"></video>
 					{:else}
 						{@const linkUrl = extractUrl(msg.content)}
-						<p>{#each parseContent(msg.content) as part}{#if part.type === 'mention'}<span class="mention">{part.value}</span>{:else}{part.value}{/if}{/each}</p>
+						<p>{#each parseContent(msg.content) as part}{#if part.type === 'mention'}<span class="mention">{part.value}</span>{:else if part.type === 'link'}<a class="msg-link" href={part.value} target="_blank" rel="noopener noreferrer">{part.value}</a>{:else}{part.value}{/if}{/each}</p>
 						{#if linkUrl && previews[linkUrl] && previews[linkUrl] !== 'loading'}
 							{@const pv = previews[linkUrl] as LinkPreview}
 							<div class="link-preview">
@@ -276,7 +279,7 @@
 						<video src={msg.content} class="msg-video" controls preload="metadata"></video>
 					{:else}
 						{@const linkUrl = extractUrl(msg.content)}
-						<p>{#each parseContent(msg.content) as part}{#if part.type === 'mention'}<span class="mention">{part.value}</span>{:else}{part.value}{/if}{/each}</p>
+						<p>{#each parseContent(msg.content) as part}{#if part.type === 'mention'}<span class="mention">{part.value}</span>{:else if part.type === 'link'}<a class="msg-link" href={part.value} target="_blank" rel="noopener noreferrer">{part.value}</a>{:else}{part.value}{/if}{/each}</p>
 						{#if linkUrl && previews[linkUrl] && previews[linkUrl] !== 'loading'}
 							{@const pv = previews[linkUrl] as LinkPreview}
 							<div class="link-preview">
@@ -464,6 +467,8 @@
 		padding: 0 3px;
 		font-weight: 600;
 	}
+	:global(.msg-link) { color: var(--accent); text-decoration: underline; word-break: break-all; }
+	:global(.msg-link):hover { opacity: 0.8; }
 	.msg-image {
 		max-width: min(480px, 100%);
 		max-height: 320px;
