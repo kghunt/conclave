@@ -18,13 +18,28 @@
 
 	type ContentPart = { type: 'text' | 'mention'; value: string };
 
+	const EMOTICONS: [RegExp, string][] = [
+		[/<3/g,    '❤️'],
+		[/:-?\)/g, '😊'],
+		[/:-?D/g,  '😄'],
+		[/:-?P/gi, '😛'],
+		[/:-?\(/g, '😢'],
+		[/;-?\)/g, '😉'],
+		[/:-?O/gi, '😮'],
+	];
+
+	function applyEmoticons(s: string): string {
+		for (const [re, emoji] of EMOTICONS) s = s.replace(re, emoji);
+		return s;
+	}
+
 	function parseContent(text: string): ContentPart[] {
 		const parts: ContentPart[] = [];
 		let last = 0;
 		const re = /@(\w+)/g;
 		let m: RegExpExecArray | null;
 		while ((m = re.exec(text)) !== null) {
-			if (m.index > last) parts.push({ type: 'text', value: text.slice(last, m.index) });
+			if (m.index > last) parts.push({ type: 'text', value: applyEmoticons(text.slice(last, m.index)) });
 			parts.push(
 				memberHandles.has(m[1].toLowerCase())
 					? { type: 'mention', value: m[0] }
@@ -32,7 +47,7 @@
 			);
 			last = m.index + m[0].length;
 		}
-		if (last < text.length) parts.push({ type: 'text', value: text.slice(last) });
+		if (last < text.length) parts.push({ type: 'text', value: applyEmoticons(text.slice(last)) });
 		return parts;
 	}
 

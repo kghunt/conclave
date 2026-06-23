@@ -47,26 +47,31 @@ class SocketClient {
 	private rooms = new Set<string>();
 	private roomRefs = new Map<string, number>();
 	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+	private closing = false;
 
 	connected = writable(false);
 
 	connect() {
-		if (this.ws?.readyState === WebSocket.OPEN) return;
+		// Guard against both OPEN and CONNECTING states to prevent duplicate sockets.
+		if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) return;
+		this.closing = false;
 		const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-		this.ws = new WebSocket(`${proto}://${location.host}/ws`);
+		const ws = new WebSocket(`${proto}://${location.host}/ws`);
+		this.ws = ws;
 
-		this.ws.onopen = () => {
+		ws.onopen = () => {
 			this.connected.set(true);
-			// re-subscribe to all rooms after reconnect
 			this.rooms.forEach((room) => this.sendSubscribe(room));
 		};
 
-		this.ws.onclose = () => {
+		ws.onclose = () => {
 			this.connected.set(false);
-			this.reconnectTimer = setTimeout(() => this.connect(), 3000);
+			if (!this.closing) {
+				this.reconnectTimer = setTimeout(() => this.connect(), 3000);
+			}
 		};
 
-		this.ws.onmessage = (e) => {
+		ws.onmessage = (e) => {
 			try {
 				const event = JSON.parse(e.data) as WSEvent;
 				this.handlers.forEach((h) => h(event));
@@ -75,6 +80,7 @@ class SocketClient {
 	}
 
 	disconnect() {
+		this.closing = true;
 		if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
 		this.ws?.close();
 		this.ws = null;
