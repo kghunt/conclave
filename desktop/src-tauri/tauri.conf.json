@@ -5,6 +5,7 @@
     "frontendDist": "../ui"
   },
   "app": {
+    "withGlobalTauri": true,
     "security": {
       "csp": null
     }
