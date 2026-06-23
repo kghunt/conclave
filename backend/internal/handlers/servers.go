@@ -911,7 +911,7 @@ func (h *ServersHandler) postWelcomeMessage(serverID, userID string) {
 	var channelID string
 	var tmpl, displayName, avatarURL string
 	err := h.db.QueryRow(context.Background(), `
-		SELECT s.welcome_channel_id, s.welcome_message, u.display_name, u.avatar_url
+		SELECT s.welcome_channel_id, s.welcome_message, u.display_name, COALESCE(u.avatar_url, '')
 		FROM servers s JOIN users u ON u.id = $2
 		WHERE s.id = $1 AND s.welcome_channel_id IS NOT NULL AND s.welcome_message != ''
 	`, serverID, userID).Scan(&channelID, &tmpl, &displayName, &avatarURL)
