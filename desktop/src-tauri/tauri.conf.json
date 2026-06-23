@@ -1,17 +1,18 @@
 {
-  "productName": "conclave-presence",
-  "identifier": "com.conclave.presence",
+  "productName": "conclave-desktop",
+  "identifier": "com.conclave.desktop",
   "build": {
-    "frontendDist": "../src"
+    "frontendDist": "../ui"
   },
   "app": {
     "windows": [
       {
         "label": "main",
-        "title": "Conclave Presence",
-        "width": 400,
-        "height": 500,
-        "resizable": false,
+        "title": "Conclave",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
         "visible": false
       }
     ],
@@ -30,14 +31,7 @@
       "icons/icon.ico"
     ],
     "category": "Utility",
-    "shortDescription": "Shows your gaming status on Conclave",
-    "longDescription": "Runs in the system tray, detects running games, and reports your status to your Conclave server."
-  },
-  "plugins": {
-    "deep-link": {
-      "desktop": {
-        "schemes": ["conclave"]
-      }
-    }
+    "shortDescription": "Conclave desktop client",
+    "longDescription": "Runs Conclave in a native window with global shortcuts, game detection, and system tray support."
   }
 }

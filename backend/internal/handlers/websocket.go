@@ -238,6 +238,16 @@ func (h *WSHandler) onEvent(c *ws.Client, event ws.Event) {
 		cancelPayload, _ := json.Marshal(map[string]string{"conv_id": body.ConvID})
 		h.hub.Broadcast("user:"+body.ToUserID, ws.Event{Type: "call.cancelled", Payload: cancelPayload})
 
+	case "game.status":
+		// Desktop app reports which game the user is running.
+		var body struct {
+			Game string `json:"game"` // empty string = no game
+		}
+		if err := json.Unmarshal(event.Payload, &body); err != nil {
+			return
+		}
+		h.hub.SetGameStatus(c.UserID(), body.Game)
+
 	case "voice.sub.create":
 		var body struct {
 			ChannelID string `json:"channel_id"`

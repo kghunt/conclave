@@ -1,4 +1,3 @@
-mod api;
 mod config;
 mod detector;
 
@@ -7,66 +6,38 @@ use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager,
+    Manager, WebviewUrl, WebviewWindowBuilder,
 };
-use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
 struct AppState {
     config: Arc<Mutex<config::Config>>,
 }
 
+// Called by the setup page after the user enters their instance URL.
 #[tauri::command]
-fn get_config(state: tauri::State<AppState>) -> serde_json::Value {
-    let cfg = state.config.lock().unwrap();
-    serde_json::json!({
-        "instance_url": cfg.instance_url,
-        "is_configured": cfg.is_configured(),
-    })
-}
-
-#[tauri::command]
-fn apply_config(instance_url: String, token: String, state: tauri::State<AppState>) {
-    let mut cfg = state.config.lock().unwrap();
-    cfg.instance_url = instance_url;
-    cfg.token = token;
-    cfg.save();
-}
-
-// Shared URL handler — called from both on_open_url and get_current().
-fn handle_connect_url(url_str: &str, cfg_ref: &Arc<Mutex<config::Config>>, app: &AppHandle) {
-    let query = if let Some(q) = url_str.strip_prefix("conclave://connect?") {
-        q
-    } else {
-        return;
-    };
-
-    let mut instance = String::new();
-    let mut token = String::new();
-    for pair in query.split('&') {
-        if let Some((k, v)) = pair.split_once('=') {
-            match k {
-                "instance" => instance = url_decode(v),
-                "token"    => token    = url_decode(v),
-                _ => {}
-            }
-        }
-    }
-
-    if instance.is_empty() || token.is_empty() {
-        return;
-    }
-
+fn configure(url: String, state: tauri::State<AppState>, app: tauri::AppHandle) -> Result<(), String> {
     {
-        let mut cfg = cfg_ref.lock().unwrap();
-        cfg.instance_url = instance;
-        cfg.token = token;
+        let mut cfg = state.config.lock().unwrap();
+        cfg.instance_url = url.clone();
         cfg.save();
     }
+    navigate_to_instance(&app, &url)
+}
 
+#[tauri::command]
+fn get_instance_url(state: tauri::State<AppState>) -> String {
+    state.config.lock().unwrap().instance_url.clone()
+}
+
+fn navigate_to_instance(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
+    let parsed = url::Url::parse(url).map_err(|e| e.to_string())?;
     if let Some(win) = app.get_webview_window("main") {
+        win.navigate(parsed);
         win.show().ok();
         win.set_focus().ok();
     }
+    Ok(())
 }
 
 pub fn run() {
@@ -76,21 +47,21 @@ pub fn run() {
     let cfg_bg = cfg.clone();
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
-        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(win) = app.get_webview_window("main") {
+                win.show().ok();
+                win.set_focus().ok();
+            }
+        }))
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(AppState { config: cfg })
         .setup(move |app| {
-            // Hide the main window on startup — we live in the tray.
-            if let Some(win) = app.get_webview_window("main") {
-                win.hide().ok();
-            }
-
-            // Tray icon.
-            let quit = MenuItem::with_id(app, "quit", "Quit Conclave Presence", true, None::<&str>)?;
-            let open = MenuItem::with_id(app, "open", "Open Settings", true, None::<&str>)?;
+            // ── Tray ──────────────────────────────────────────────────────────
+            let open = MenuItem::with_id(app, "open", "Open Conclave", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open, &quit])?;
 
-            let _tray = TrayIconBuilder::new()
+            TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
@@ -114,72 +85,103 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // Deep link handling.
-            let state: tauri::State<AppState> = app.state();
-            let cfg_link  = state.config.clone();
-            let cfg_link2 = state.config.clone();
-            let handle    = app.handle().clone();
-            let handle2   = app.handle().clone();
+            // ── Main window ───────────────────────────────────────────────────
+            // Starts on the bundled setup page. If already configured, we
+            // immediately navigate to the instance URL.
+            // initialization_script runs on every navigation so the SvelteKit
+            // app always sees window.__TAURI_DESKTOP__ = true.
+            let win = WebviewWindowBuilder::new(
+                app,
+                "main",
+                WebviewUrl::App("index.html".into()),
+            )
+            .title("Conclave")
+            .inner_size(1280.0, 800.0)
+            .min_inner_size(900.0, 600.0)
+            .initialization_script("window.__TAURI_DESKTOP__ = true;")
+            .build()?;
 
-            // Hot path: app already running, URL forwarded by single-instance plugin.
-            app.deep_link().on_open_url(move |event| {
-                for url in event.urls() {
-                    handle_connect_url(url.as_str(), &cfg_link, &handle);
-                }
-            });
-
-            // Cold start path: URL was passed as a launch argument.
-            // get_current() returns the URL that triggered this process.
-            if let Ok(Some(urls)) = app.deep_link().get_current() {
-                for url in urls {
-                    handle_connect_url(url.as_str(), &cfg_link2, &handle2);
+            let instance_url = cfg_bg.lock().unwrap().instance_url.clone();
+            if !instance_url.is_empty() {
+                if let Ok(url) = url::Url::parse(&instance_url) {
+                    win.navigate(url);
                 }
             }
 
-            // Background heartbeat loop.
+            win.show()?;
+
+            // Hide to tray on close instead of quitting.
+            let app_for_close = app.handle().clone();
+            win.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    if let Some(w) = app_for_close.get_webview_window("main") {
+                        w.hide().ok();
+                    }
+                }
+            });
+
+            // ── Global shortcuts ──────────────────────────────────────────────
+            // Ctrl/Cmd + Shift + M  →  mute toggle (dispatched into WebView)
+            // Ctrl/Cmd + Shift + D  →  show / hide window
+            let mute_shortcut = Shortcut::new(
+                Some(Modifiers::CONTROL | Modifiers::SHIFT),
+                Code::KeyM,
+            );
+            let hide_shortcut = Shortcut::new(
+                Some(Modifiers::CONTROL | Modifiers::SHIFT),
+                Code::KeyD,
+            );
+
+            let app_sh = app.handle().clone();
+            let mute_copy = mute_shortcut.clone();
+            app.global_shortcut().on_shortcuts(
+                [mute_shortcut, hide_shortcut],
+                move |_app, shortcut, event| {
+                    if let tauri_plugin_global_shortcut::ShortcutState::Pressed = event.state() {
+                        if shortcut == &mute_copy {
+                            if let Some(w) = app_sh.get_webview_window("main") {
+                                w.eval("window.dispatchEvent(new CustomEvent('conclave-shortcut',{detail:'mute'}));").ok();
+                            }
+                        } else {
+                            if let Some(w) = app_sh.get_webview_window("main") {
+                                if w.is_visible().unwrap_or(false) {
+                                    w.hide().ok();
+                                } else {
+                                    w.show().ok();
+                                    w.set_focus().ok();
+                                }
+                            }
+                        }
+                    }
+                },
+            )?;
+
+            // ── Game detection loop ───────────────────────────────────────────
             let games = detector::load_games();
+            let app_game = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let mut last_game: Option<String> = None;
                 loop {
                     tokio::time::sleep(Duration::from_secs(30)).await;
-                    let cfg = cfg_bg.lock().unwrap().clone();
-                    if !cfg.is_configured() {
-                        continue;
-                    }
                     let game = detector::detect_running_game(&games);
                     if game != last_game {
                         last_game = game.clone();
-                    }
-                    if let Err(e) = api::heartbeat(&cfg, game.as_deref()).await {
-                        log::warn!("heartbeat failed: {e}");
+                        if let Some(win) = app_game.get_webview_window("main") {
+                            let payload = serde_json::to_string(&game)
+                                .unwrap_or_else(|_| "null".into());
+                            win.eval(&format!(
+                                "window.dispatchEvent(new CustomEvent('conclave-game',{{detail:{payload}}}));"
+                            ))
+                            .ok();
+                        }
                     }
                 }
             });
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_config, apply_config])
+        .invoke_handler(tauri::generate_handler![configure, get_instance_url])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-fn url_decode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut bytes = s.bytes().peekable();
-    while let Some(b) = bytes.next() {
-        if b == b'%' {
-            let hi = bytes.next().unwrap_or(b'0');
-            let lo = bytes.next().unwrap_or(b'0');
-            if let Ok(c) = u8::from_str_radix(
-                &format!("{}{}", hi as char, lo as char), 16,
-            ) {
-                out.push(c as char);
-            }
-        } else if b == b'+' {
-            out.push(' ');
-        } else {
-            out.push(b as char);
-        }
-    }
-    out
 }
