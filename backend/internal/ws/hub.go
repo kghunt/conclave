@@ -1,6 +1,8 @@
 package ws
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"log"
 	"sync"
@@ -8,6 +10,30 @@ import (
 
 	"github.com/gorilla/websocket"
 )
+
+// VoiceSubParticipant carries display info for sub-channel state broadcasts.
+type VoiceSubParticipant struct {
+	UserID      string `json:"user_id"`
+	DisplayName string `json:"display_name"`
+	AvatarURL   string `json:"avatar_url"`
+}
+
+// VoiceSub is an ephemeral breakout room nested inside a voice channel.
+type VoiceSub struct {
+	ID           string
+	ChannelID    string
+	ServerID     string
+	Name         string
+	CreatorID    string
+	Participants map[string]*Client              // userID → *Client
+	PeerInfo     map[string]VoiceSubParticipant  // userID → display info
+}
+
+func newSubID() string {
+	b := make([]byte, 6)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
 
 const (
 	writeWait  = 10 * time.Second
@@ -62,6 +88,7 @@ type Hub struct {
 
 	voiceRooms     map[string]map[string]*Client // channelID → userID → *Client
 	voiceServerMap map[string]string             // channelID → serverID
+	voiceSubs      map[string]map[string]*VoiceSub // channelID → subID → *VoiceSub
 	voiceMu        sync.RWMutex
 }
 
@@ -84,6 +111,7 @@ func NewHub() *Hub {
 		GameStatusChanges: make(chan GameStatusChange, 256),
 		voiceRooms:        make(map[string]map[string]*Client),
 		voiceServerMap:    make(map[string]string),
+		voiceSubs:         make(map[string]map[string]*VoiceSub),
 	}
 	go h.runGameStatusCleaner()
 	return h
@@ -425,6 +453,101 @@ func (h *Hub) VoiceSendTo(channelID, toUserID string, data []byte) bool {
 		h.unregister <- c
 		return false
 	}
+}
+
+// ── Voice sub-channel (breakout room) methods ────────────────────────────────
+
+// VoiceSubCreate creates a new breakout room and returns it.
+func (h *Hub) VoiceSubCreate(channelID, serverID, creatorID, name string, peer VoiceSubParticipant, c *Client) *VoiceSub {
+	h.voiceMu.Lock()
+	defer h.voiceMu.Unlock()
+	if h.voiceSubs[channelID] == nil {
+		h.voiceSubs[channelID] = make(map[string]*VoiceSub)
+	}
+	sub := &VoiceSub{
+		ID:           newSubID(),
+		ChannelID:    channelID,
+		ServerID:     serverID,
+		Name:         name,
+		CreatorID:    creatorID,
+		Participants: map[string]*Client{creatorID: c},
+		PeerInfo:     map[string]VoiceSubParticipant{creatorID: peer},
+	}
+	h.voiceSubs[channelID][sub.ID] = sub
+	return sub
+}
+
+// VoiceSubJoin adds a user to an existing sub. Returns (sub, ok).
+func (h *Hub) VoiceSubJoin(channelID, subID, userID string, peer VoiceSubParticipant, c *Client) (*VoiceSub, bool) {
+	h.voiceMu.Lock()
+	defer h.voiceMu.Unlock()
+	sub, ok := h.voiceSubs[channelID][subID]
+	if !ok {
+		return nil, false
+	}
+	sub.Participants[userID] = c
+	sub.PeerInfo[userID] = peer
+	return sub, true
+}
+
+// VoiceSubLeave removes a user from a sub. Returns (sub, wasClosed, closedParticipants).
+func (h *Hub) VoiceSubLeave(channelID, subID, userID string) (sub *VoiceSub, wasClosed bool, closedParticipants []string) {
+	h.voiceMu.Lock()
+	defer h.voiceMu.Unlock()
+	s, ok := h.voiceSubs[channelID][subID]
+	if !ok {
+		return nil, false, nil
+	}
+	delete(s.Participants, userID)
+	delete(s.PeerInfo, userID)
+	if len(s.Participants) == 0 {
+		delete(h.voiceSubs[channelID], subID)
+		if len(h.voiceSubs[channelID]) == 0 {
+			delete(h.voiceSubs, channelID)
+		}
+		return s, true, nil
+	}
+	return s, false, nil
+}
+
+// VoiceSubClose force-closes a sub and returns its participant user IDs.
+func (h *Hub) VoiceSubClose(channelID, subID string) (serverID string, participants []string) {
+	h.voiceMu.Lock()
+	defer h.voiceMu.Unlock()
+	sub, ok := h.voiceSubs[channelID][subID]
+	if !ok {
+		return "", nil
+	}
+	for uid := range sub.Participants {
+		participants = append(participants, uid)
+	}
+	serverID = sub.ServerID
+	delete(h.voiceSubs[channelID], subID)
+	if len(h.voiceSubs[channelID]) == 0 {
+		delete(h.voiceSubs, channelID)
+	}
+	return serverID, participants
+}
+
+// GetVoiceSubsSnapshot returns a serialisable snapshot of all subs for a channel.
+func (h *Hub) GetVoiceSubsSnapshot(channelID string) []map[string]any {
+	h.voiceMu.RLock()
+	defer h.voiceMu.RUnlock()
+	subs := h.voiceSubs[channelID]
+	out := make([]map[string]any, 0, len(subs))
+	for _, sub := range subs {
+		peers := make([]VoiceSubParticipant, 0, len(sub.PeerInfo))
+		for _, p := range sub.PeerInfo {
+			peers = append(peers, p)
+		}
+		out = append(out, map[string]any{
+			"id":           sub.ID,
+			"name":         sub.Name,
+			"creator_id":   sub.CreatorID,
+			"participants": peers,
+		})
+	}
+	return out
 }
 
 func (h *Hub) BroadcastExcept(room string, exclude *Client, event Event) {

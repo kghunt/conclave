@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { api } from '$lib/api';
-	import { activeServer, channels, activeChannel, activeDM, currentUser, mentionedChannels, voiceParticipants } from '$lib/stores';
+	import { activeServer, channels, activeChannel, activeDM, currentUser, mentionedChannels, voiceParticipants, voiceSubState } from '$lib/stores';
 	import { socket } from '$lib/socket';
 	import type { Channel } from '$lib/api';
-	import { voiceState, joinVoice, leaveVoice, peerVolumesStore, setPeerVolume } from '$lib/voice';
+	import { voiceState, joinVoice, leaveVoice, joinVoiceSub, leaveVoiceSub, createVoiceSub, peerVolumesStore, setPeerVolume } from '$lib/voice';
 	import VoicePanel from './VoicePanel.svelte';
 	import Avatar from './Avatar.svelte';
 	import UserBar from './UserBar.svelte';
@@ -37,6 +37,26 @@
 						(p) => p.user_id !== event.payload.user_id
 					)
 				}));
+			} else if (event.type === 'voice.sub.state') {
+				voiceSubState.update((s) => ({ ...s, [event.payload.channel_id]: event.payload.subs }));
+			} else if (event.type === 'voice.sub.closed') {
+				const { channel_id, sub_id } = event.payload;
+				voiceSubState.update((s) => ({
+					...s,
+					[channel_id]: (s[channel_id] ?? []).filter((sub) => sub.id !== sub_id),
+				}));
+				// If the current user was in this sub, automatically rejoin the main channel.
+				if ($voiceState.subChannelId === sub_id && $voiceState.channelId === channel_id) {
+					const srvId = $voiceState.serverId ?? '';
+					socket.send('voice.sub.leave', { channel_id, sub_id });
+					joinVoice(channel_id, srvId);
+				}
+			} else if (event.type === 'voice.sub.created') {
+				// Auto-join the sub the current user just created.
+				const { channel_id, sub_id, name } = event.payload;
+				if ($voiceState.channelId === channel_id) {
+					joinVoiceSub(channel_id, $voiceState.serverId ?? '', sub_id, name);
+				}
 			}
 		});
 		return unsub;
@@ -199,10 +219,11 @@
 			{#each $channels.filter((c) => c.type === 'voice') as ch}
 				{@const peers = $voiceParticipants[ch.id] ?? []}
 				{@const inThisChannel = $voiceState.channelId === ch.id}
+				{@const subs = $voiceSubState[ch.id] ?? []}
 				<div class="channel-row">
 					<button
 						class="channel-item voice-channel-item"
-						class:active={inThisChannel}
+						class:active={inThisChannel && !$voiceState.subChannelId}
 						onclick={() => handleVoiceChannelClick(ch)}
 					>
 						<span class="voice-ch-icon">🔊</span>
@@ -211,10 +232,21 @@
 							<span class="voice-count">{peers.length}</span>
 						{/if}
 					</button>
+					{#if inThisChannel && !$voiceState.subChannelId}
+						<button
+							class="sub-create-btn"
+							title="Create sub-channel"
+							onclick={() => {
+								const name = prompt('Sub-channel name (e.g. Team 1):');
+								if (name?.trim()) createVoiceSub(ch.id, name.trim());
+							}}
+						>+</button>
+					{/if}
 					{#if $activeServer?.role === 'owner' || $activeServer?.role === 'admin'}
 						<button class="ch-delete-btn" onclick={() => deleteChannel(ch)} title="Delete channel">✕</button>
 					{/if}
 				</div>
+
 				{#if peers.length > 0}
 					<div class="voice-participant-list">
 						{#each peers as peer}
@@ -228,7 +260,7 @@
 									class:speaking
 								/>
 								<span class="vp-name" class:speaking>{peer.display_name}</span>
-								{#if inThisChannel && !isSelf}
+								{#if inThisChannel && !$voiceState.subChannelId && !isSelf}
 									<input
 										class="vp-vol"
 										type="range" min="0" max="2" step="0.05"
@@ -241,6 +273,59 @@
 						{/each}
 					</div>
 				{/if}
+
+				{#each subs as sub}
+					{@const inThisSub = $voiceState.subChannelId === sub.id}
+					<div class="sub-channel-row">
+						<button
+							class="sub-channel-item"
+							class:active={inThisSub}
+							onclick={() => {
+								if (inThisSub) {
+									leaveVoiceSub(ch.id, sub.id, $voiceState.serverId ?? '');
+								} else {
+									joinVoiceSub(ch.id, $voiceState.serverId ?? $activeServer?.id ?? '', sub.id, sub.name);
+								}
+							}}
+						>
+							<span class="sub-icon">╰</span>
+							<span class="sub-name">{sub.name}</span>
+							<span class="voice-count">{sub.participants.length}</span>
+						</button>
+						{#if inThisSub || $activeServer?.role === 'owner' || $activeServer?.role === 'admin' || sub.creator_id === $currentUser?.id}
+							<button
+								class="ch-delete-btn"
+								title="Close sub-channel"
+								onclick={() => socket.send('voice.sub.close', { channel_id: ch.id, sub_id: sub.id })}
+							>✕</button>
+						{/if}
+					</div>
+					{#if sub.participants.length > 0}
+						<div class="voice-participant-list sub-participant-list">
+							{#each sub.participants as peer}
+								{@const speaking = inThisSub && $voiceState.speakingUsers.has(peer.user_id)}
+								<div class="voice-participant" class:speaking>
+									<img
+										src={peer.avatar_url || '/default-avatar.png'}
+										alt={peer.display_name}
+										class="vp-avatar"
+										class:speaking
+									/>
+									<span class="vp-name" class:speaking>{peer.display_name}</span>
+									{#if inThisSub && peer.user_id !== $currentUser?.id}
+										<input
+											class="vp-vol"
+											type="range" min="0" max="2" step="0.05"
+											value={$peerVolumesStore[peer.user_id] ?? 1}
+											oninput={(e) => setPeerVolume(peer.user_id, +(e.target as HTMLInputElement).value)}
+											title="Volume"
+										/>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					{/if}
+				{/each}
 			{/each}
 		{/if}
 	{/if}
@@ -501,6 +586,56 @@
 		height: 3px;
 		accent-color: #43b581;
 		cursor: pointer;
+	}
+	.sub-create-btn {
+		background: none;
+		border: none;
+		color: var(--text-muted);
+		cursor: pointer;
+		font-size: 1rem;
+		line-height: 1;
+		padding: 0 4px;
+		border-radius: 4px;
+		flex-shrink: 0;
+	}
+	.sub-create-btn:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+	.sub-channel-row {
+		display: flex;
+		align-items: center;
+		padding: 0 0.5rem 0 0.75rem;
+		gap: 2px;
+	}
+	.sub-channel-item {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex: 1;
+		min-width: 0;
+		background: none;
+		border: none;
+		color: var(--text-muted);
+		cursor: pointer;
+		padding: 2px 4px;
+		border-radius: 4px;
+		font-size: 0.82rem;
+		text-align: left;
+	}
+	.sub-channel-item:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+	.sub-channel-item.active { color: #43b581; }
+	.sub-icon {
+		font-size: 0.75rem;
+		opacity: 0.5;
+		flex-shrink: 0;
+	}
+	.sub-name {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.sub-participant-list {
+		padding-left: 3rem;
 	}
 	.user-info {
 		display: flex;
