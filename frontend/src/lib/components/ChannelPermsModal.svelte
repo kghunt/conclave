@@ -1,11 +1,33 @@
 <script lang="ts">
 	import { api, type Channel, type ChannelPerm } from '$lib/api';
+	import { channels } from '$lib/stores';
 
 	let { serverId, channel, onclose }: { serverId: string; channel: Channel; onclose: () => void } = $props();
 
 	let perms = $state<ChannelPerm[]>([]);
 	let loading = $state(true);
 	let saving = $state<Record<string, boolean>>({});
+
+	// Channel settings
+	let editName = $state(channel.name);
+	let editCategory = $state(channel.category ?? '');
+	let editSlowMode = $state(channel.slow_mode_seconds ?? 0);
+	let settingsSaving = $state(false);
+
+	async function saveSettings() {
+		if (settingsSaving) return;
+		settingsSaving = true;
+		try {
+			const updated = await api.updateChannel(serverId, channel.id, {
+				name: editName.trim() || undefined,
+				category: editCategory.trim(),
+				slow_mode_seconds: editSlowMode,
+			});
+			channels.update((prev) => prev.map((c) => c.id === updated.id ? updated : c));
+		} finally {
+			settingsSaving = false;
+		}
+	}
 
 	$effect(() => {
 		if (serverId && channel.id) load();
@@ -68,6 +90,27 @@
 		</div>
 
 		<div class="body">
+			<div class="settings-section">
+				<h3>Settings</h3>
+				<div class="settings-row">
+					<label>Name
+						<input bind:value={editName} placeholder="channel-name" />
+					</label>
+					<label>Category
+						<input bind:value={editCategory} placeholder="e.g. Gaming (leave blank for none)" />
+					</label>
+					<label>Slow mode
+						<div class="slow-row">
+							<input type="number" min="0" max="3600" bind:value={editSlowMode} />
+							<span class="unit">seconds (0 = off)</span>
+						</div>
+					</label>
+				</div>
+				<button class="save-btn" onclick={saveSettings} disabled={settingsSaving}>
+					{settingsSaving ? 'Saving…' : 'Save settings'}
+				</button>
+			</div>
+
 			{#if loading}
 				<p class="hint">Loading…</p>
 			{:else}
@@ -156,6 +199,18 @@
 	.close:hover { color: var(--text); }
 	.body { flex: 1; overflow-y: auto; padding: 0.75rem 1.5rem 1.25rem; }
 	.hint { color: var(--text-muted); font-size: 0.9rem; text-align: center; padding: 1rem 0; }
+	.settings-section { margin-bottom: 1.25rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
+	.settings-section h3 { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin: 0 0 0.75rem; }
+	.settings-row { display: flex; flex-direction: column; gap: 0.6rem; }
+	.settings-row label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; color: var(--text-muted); }
+	.settings-row input { background: var(--bg-input); border: 1px solid var(--border); border-radius: 5px; color: var(--text); font-size: 0.9rem; padding: 0.4rem 0.6rem; font-family: inherit; outline: none; }
+	.settings-row input:focus { border-color: var(--accent); }
+	.slow-row { display: flex; align-items: center; gap: 0.5rem; }
+	.slow-row input { width: 80px; }
+	.unit { font-size: 0.78rem; color: var(--text-muted); }
+	.save-btn { margin-top: 0.75rem; padding: 0.4rem 0.9rem; background: var(--accent); border: none; border-radius: 5px; color: white; font-size: 0.85rem; font-weight: 600; cursor: pointer; font-family: inherit; }
+	.save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+	.save-btn:hover:not(:disabled) { opacity: 0.85; }
 	.perm-table { display: flex; flex-direction: column; gap: 0.25rem; }
 	.table-head {
 		display: grid;
