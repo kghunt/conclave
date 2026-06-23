@@ -121,15 +121,19 @@
 		return m ? m[0] : null;
 	}
 
-	function fetchPreview(url: string) {
-		if (url in previews) return;
-		previews[url] = 'loading';
-		api.unfurl(url).then((p) => {
-			previews[url] = p.title ? p : null;
-		}).catch(() => {
-			previews[url] = null;
-		});
-	}
+	$effect(() => {
+		for (const msg of messages) {
+			const url = extractUrl(msg.content);
+			if (url && !(url in previews)) {
+				previews[url] = 'loading';
+				api.unfurl(url).then((p) => {
+					previews[url] = p.title ? p : null;
+				}).catch(() => {
+					previews[url] = null;
+				});
+			}
+		}
+	});
 
 	function isImageUrl(text: string): boolean {
 		const t = text.trim();
@@ -232,7 +236,6 @@
 						<video src={msg.content} class="msg-video" controls preload="metadata"></video>
 					{:else}
 						{@const linkUrl = extractUrl(msg.content)}
-						{#if linkUrl}{fetchPreview(linkUrl)}{/if}
 						<p>{#each parseContent(msg.content) as part}{#if part.type === 'mention'}<span class="mention">{part.value}</span>{:else}{part.value}{/if}{/each}</p>
 						{#if linkUrl && previews[linkUrl] && previews[linkUrl] !== 'loading'}
 							{@const pv = previews[linkUrl] as LinkPreview}
@@ -273,7 +276,6 @@
 						<video src={msg.content} class="msg-video" controls preload="metadata"></video>
 					{:else}
 						{@const linkUrl = extractUrl(msg.content)}
-						{#if linkUrl}{fetchPreview(linkUrl)}{/if}
 						<p>{#each parseContent(msg.content) as part}{#if part.type === 'mention'}<span class="mention">{part.value}</span>{:else}{part.value}{/if}{/each}</p>
 						{#if linkUrl && previews[linkUrl] && previews[linkUrl] !== 'loading'}
 							{@const pv = previews[linkUrl] as LinkPreview}
