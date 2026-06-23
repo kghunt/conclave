@@ -316,8 +316,8 @@ export function createVoiceSub(chId: string, name: string) {
 }
 
 export async function joinVoiceSub(chId: string, srvId: string, subId: string, name: string): Promise<void> {
-	// Leave current voice context (disconnects LiveKit, sends voice.leave if in main channel).
-	leaveVoice();
+	// Silent leave — no sound when moving between main channel and a sub.
+	leaveVoice(true);
 
 	voiceState.update((s) => ({ ...s, connecting: true }));
 
@@ -491,18 +491,20 @@ export function handleCallCancelled(): void {
 
 // ── Public: leave ─────────────────────────────────────────────────────────────
 
-export function leaveVoice() {
+export function leaveVoice(silent = false) {
 	const wasDM = !!dmConvId;
 	const convId = dmConvId;
 	const peerUserId = dmPeerUserId;
 	const ch = channelId;
 
 	channelId = null;
+	subChannelId = null;
+	subChannelName = null;
 	dmConvId = null;
 	dmPeerUserId = null;
 
 	if (!wasDM && ch) {
-		playSelfLeaveSound();
+		if (!silent) playSelfLeaveSound();
 		socket.send('voice.leave', { channel_id: ch });
 		socket.unsubscribe('channel:' + ch);
 		wsUnsubscribe?.();
