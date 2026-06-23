@@ -24,3 +24,14 @@ self.addEventListener('notificationclick', (event) => {
         })
     );
 });
+
+// Close any open notifications when the page marks a channel/DM as read.
+// Payload: { type: 'mark-read' } — closes all notifications since we can't
+// match by channel without storing extra metadata per notification.
+self.addEventListener('message', (event) => {
+    if (event.data?.type === 'mark-read') {
+        self.registration.getNotifications().then((notifications) => {
+            notifications.forEach((n) => n.close());
+        });
+    }
+});

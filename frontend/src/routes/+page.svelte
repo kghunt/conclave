@@ -183,6 +183,7 @@
 
 		api.listMessages(serverId, channelId).then((m) => (messages = m ?? []));
 		api.markRead(serverId, channelId);
+		notifyRead();
 		channels.update((cs) => cs.map((c) => c.id === channelId ? { ...c, unread_count: 0 } : c));
 		socket.subscribe(room);
 
@@ -190,6 +191,7 @@
 			if (event.type === 'message.new' && event.payload.channel_id === channelId) {
 				messages = [...messages, event.payload];
 				api.markRead(serverId, channelId);
+				notifyRead();
 				channels.update((cs) => cs.map((c) => c.id === channelId ? { ...c, unread_count: 0 } : c));
 				if ($notifPrefs.messageSound && event.payload.author?.id !== $currentUser?.id) {
 					playMessageSound();
@@ -245,6 +247,7 @@
 		api.listDMMessages(convId).then((m) => (dmMessages = m ?? []));
 		// Mark read and clear unread count in the store
 		api.markDMRead(convId);
+		notifyRead();
 		dmConversations.update((cs) => cs.map((c) => c.id === convId ? { ...c, unread_count: 0 } : c));
 		socket.subscribe(room);
 
@@ -369,6 +372,18 @@
 		const hasUnread = $channels.some((c) => c.unread_count > 0 || $mentionedChannels.has(c.id));
 		serverUnread.update((m) => ({ ...m, [srv.id]: hasUnread }));
 	});
+
+	// Clear OS notification badge when all unreads are gone.
+	$effect(() => {
+		const totalUnread = $channels.reduce((n, c) => n + (c.unread_count ?? 0), 0)
+			+ $dmConversations.reduce((n, c) => n + (c.unread_count ?? 0), 0);
+		if (totalUnread === 0) navigator.clearAppBadge?.();
+		else navigator.setAppBadge?.(totalUnread);
+	});
+
+	function notifyRead() {
+		navigator.serviceWorker?.controller?.postMessage({ type: 'mark-read' });
+	}
 
 	// Listen for mentions, DMs from background conversations, kicks/bans, friend events, and calls
 	$effect(() => {
