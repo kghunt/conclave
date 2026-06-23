@@ -62,11 +62,13 @@
 		return unsub;
 	});
 
-	// Keep current user in voiceParticipants while they're in voice
+	// Keep current user in voiceParticipants while in the main channel.
+	// Skip when in a sub-channel — they've left the main channel audio.
 	$effect(() => {
 		const chId = $voiceState.channelId;
+		const subId = $voiceState.subChannelId;
 		const user = $currentUser;
-		if (!chId || !user) return;
+		if (!chId || !user || subId) return;
 		voiceParticipants.update((vp) => {
 			const peers = vp[chId] ?? [];
 			if (peers.find((p) => p.user_id === user.id)) return vp;

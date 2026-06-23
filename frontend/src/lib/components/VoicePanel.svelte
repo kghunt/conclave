@@ -51,7 +51,7 @@
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
 					{/if}
 				</button>
-				<button class="vbtn leave-btn" onclick={leaveVoice} title="Leave voice">
+				<button class="vbtn leave-btn" onclick={() => leaveVoice()} title="Leave voice">
 					<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M10.9 15.6l-1.42 1.42C10.99 18.3 12.42 19 14 19h1v-2h-1c-.93 0-1.78-.4-2.1-1.4zM20 8h-1c0-2.21-1.79-4-4-4H9v2h6c1.1 0 2 .9 2 2H15v2h2v2h-2v2h2v2h-2v2h5V8zm-10 0H4c-1.1 0-2 .9-2 2v4c0 1.1.9 2 2 2h6v-4H8v-2h2V8z"/></svg>
 				</button>
 			</div>
