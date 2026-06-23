@@ -7,7 +7,7 @@ use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
-    Manager,
+    AppHandle, Manager,
 };
 use tauri_plugin_deep_link::DeepLinkExt;
 
@@ -32,6 +32,43 @@ fn apply_config(instance_url: String, token: String, state: tauri::State<AppStat
     cfg.save();
 }
 
+// Shared URL handler — called from both on_open_url and get_current().
+fn handle_connect_url(url_str: &str, cfg_ref: &Arc<Mutex<config::Config>>, app: &AppHandle) {
+    let query = if let Some(q) = url_str.strip_prefix("conclave://connect?") {
+        q
+    } else {
+        return;
+    };
+
+    let mut instance = String::new();
+    let mut token = String::new();
+    for pair in query.split('&') {
+        if let Some((k, v)) = pair.split_once('=') {
+            match k {
+                "instance" => instance = url_decode(v),
+                "token"    => token    = url_decode(v),
+                _ => {}
+            }
+        }
+    }
+
+    if instance.is_empty() || token.is_empty() {
+        return;
+    }
+
+    {
+        let mut cfg = cfg_ref.lock().unwrap();
+        cfg.instance_url = instance;
+        cfg.token = token;
+        cfg.save();
+    }
+
+    if let Some(win) = app.get_webview_window("main") {
+        win.show().ok();
+        win.set_focus().ok();
+    }
+}
+
 pub fn run() {
     env_logger::init();
 
@@ -48,7 +85,7 @@ pub fn run() {
                 win.hide().ok();
             }
 
-            // Tray icon setup.
+            // Tray icon.
             let quit = MenuItem::with_id(app, "quit", "Quit Conclave Presence", true, None::<&str>)?;
             let open = MenuItem::with_id(app, "open", "Open Settings", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open, &quit])?;
@@ -77,41 +114,27 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // Handle deep links: conclave://connect?instance=...&token=...
+            // Deep link handling.
             let state: tauri::State<AppState> = app.state();
-            let cfg_link = state.config.clone();
-            let app_handle = app.handle().clone();
+            let cfg_link  = state.config.clone();
+            let cfg_link2 = state.config.clone();
+            let handle    = app.handle().clone();
+            let handle2   = app.handle().clone();
 
+            // Hot path: app already running, URL forwarded by single-instance plugin.
             app.deep_link().on_open_url(move |event| {
                 for url in event.urls() {
-                    let url_str = url.as_str();
-                    if let Some(query) = url_str.strip_prefix("conclave://connect?") {
-                        let mut instance = String::new();
-                        let mut token = String::new();
-                        for pair in query.split('&') {
-                            if let Some((k, v)) = pair.split_once('=') {
-                                let decoded = url_decode(v);
-                                match k {
-                                    "instance" => instance = decoded,
-                                    "token" => token = decoded,
-                                    _ => {}
-                                }
-                            }
-                        }
-                        if !instance.is_empty() && !token.is_empty() {
-                            let mut cfg = cfg_link.lock().unwrap();
-                            cfg.instance_url = instance;
-                            cfg.token = token;
-                            cfg.save();
-                            drop(cfg);
-                            if let Some(win) = app_handle.get_webview_window("main") {
-                                win.show().ok();
-                                win.set_focus().ok();
-                            }
-                        }
-                    }
+                    handle_connect_url(url.as_str(), &cfg_link, &handle);
                 }
             });
+
+            // Cold start path: URL was passed as a launch argument.
+            // get_current() returns the URL that triggered this process.
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
+                for url in urls {
+                    handle_connect_url(url.as_str(), &cfg_link2, &handle2);
+                }
+            }
 
             // Background heartbeat loop.
             let games = detector::load_games();
@@ -142,12 +165,14 @@ pub fn run() {
 
 fn url_decode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
-    let mut chars = s.bytes().peekable();
-    while let Some(b) = chars.next() {
+    let mut bytes = s.bytes().peekable();
+    while let Some(b) = bytes.next() {
         if b == b'%' {
-            let hi = chars.next().unwrap_or(b'0');
-            let lo = chars.next().unwrap_or(b'0');
-            if let Ok(c) = u8::from_str_radix(&format!("{}{}", hi as char, lo as char), 16) {
+            let hi = bytes.next().unwrap_or(b'0');
+            let lo = bytes.next().unwrap_or(b'0');
+            if let Ok(c) = u8::from_str_radix(
+                &format!("{}{}", hi as char, lo as char), 16,
+            ) {
                 out.push(c as char);
             }
         } else if b == b'+' {
