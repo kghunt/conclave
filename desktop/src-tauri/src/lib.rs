@@ -99,7 +99,6 @@ pub fn run() {
             .inner_size(1280.0, 800.0)
             .min_inner_size(900.0, 600.0)
             .initialization_script("window.__TAURI_DESKTOP__ = true;")
-            .hardware_accelerated(true)
             .build()?;
 
             let instance_url = cfg_bg.lock().unwrap().instance_url.clone();
