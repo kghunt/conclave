@@ -14,9 +14,50 @@
 	let uploading = $state(false);
 	let fileInput: HTMLInputElement;
 
-	// Desktop-only game detection
+	// Desktop-only settings
 	const isDesktop = typeof window !== 'undefined' && !!(window as any).__TAURI_DESKTOP__;
 	const tauri = isDesktop ? (window as any).__TAURI__?.core : null;
+
+	// Shortcuts
+	interface ShortcutConfig { mute_key: string; window_key: string; mute_mode: string; }
+	let shortcuts = $state<ShortcutConfig>({ mute_key: 'ctrl+shift+m', window_key: 'ctrl+shift+d', mute_mode: 'toggle' });
+	let shortcutsSaving = $state(false);
+	let recordingField = $state<'mute_key' | 'window_key' | null>(null);
+
+	if (isDesktop) {
+		tauri?.invoke('get_shortcuts').then((s: ShortcutConfig) => { shortcuts = s; }).catch(() => {});
+	}
+
+	function formatShortcut(s: string): string {
+		return s.split('+').map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(' + ');
+	}
+
+	function startRecording(field: 'mute_key' | 'window_key') {
+		recordingField = field;
+	}
+
+	function onShortcutKeydown(e: KeyboardEvent) {
+		if (!recordingField) return;
+		e.preventDefault();
+		e.stopPropagation();
+		if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
+		const parts: string[] = [];
+		if (e.ctrlKey) parts.push('ctrl');
+		if (e.shiftKey) parts.push('shift');
+		if (e.altKey) parts.push('alt');
+		if (e.metaKey) parts.push('meta');
+		const key = e.key.toLowerCase().replace(' ', 'space');
+		parts.push(key);
+		shortcuts = { ...shortcuts, [recordingField]: parts.join('+') };
+		recordingField = null;
+		saveShortcuts();
+	}
+
+	async function saveShortcuts() {
+		shortcutsSaving = true;
+		try { await tauri?.invoke('save_shortcuts', { shortcuts }); } catch { }
+		finally { shortcutsSaving = false; }
+	}
 
 	interface GameEntry { name: string; processes: string[] }
 	let games = $state<GameEntry[]>([]);
@@ -191,6 +232,50 @@
 				</button>
 			</div>
 		</div>
+
+		{#if isDesktop}
+			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<div class="section" onkeydown={onShortcutKeydown}>
+				<div class="section-title">Keyboard Shortcuts {shortcutsSaving ? '— Saving…' : ''}</div>
+
+				<div class="shortcut-row">
+					<div class="shortcut-label">
+						<span>Mute / Voice</span>
+						<span class="shortcut-hint">Controls microphone in voice channels</span>
+					</div>
+					<div class="shortcut-controls">
+						<select class="mode-select" bind:value={shortcuts.mute_mode} onchange={saveShortcuts}>
+							<option value="toggle">Toggle</option>
+							<option value="push_to_talk">Push to Talk</option>
+							<option value="push_to_mute">Push to Mute</option>
+						</select>
+						<button
+							class="shortcut-btn"
+							class:recording={recordingField === 'mute_key'}
+							onclick={() => startRecording('mute_key')}
+						>
+							{recordingField === 'mute_key' ? 'Press keys…' : formatShortcut(shortcuts.mute_key)}
+						</button>
+					</div>
+				</div>
+
+				<div class="shortcut-row">
+					<div class="shortcut-label">
+						<span>Show / Hide window</span>
+						<span class="shortcut-hint">Toggle the Conclave window</span>
+					</div>
+					<div class="shortcut-controls">
+						<button
+							class="shortcut-btn"
+							class:recording={recordingField === 'window_key'}
+							onclick={() => startRecording('window_key')}
+						>
+							{recordingField === 'window_key' ? 'Press keys…' : formatShortcut(shortcuts.window_key)}
+						</button>
+					</div>
+				</div>
+			</div>
+		{/if}
 
 		{#if isDesktop && gamesLoaded}
 			<div class="section">
@@ -419,6 +504,16 @@
 		letter-spacing: 0.05em;
 		color: var(--text-muted);
 	}
+	.shortcut-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.3rem 0; }
+	.shortcut-label { display: flex; flex-direction: column; gap: 2px; }
+	.shortcut-label span:first-child { font-size: 0.88rem; color: var(--text); }
+	.shortcut-hint { font-size: 0.75rem; color: var(--text-muted); }
+	.shortcut-controls { display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0; }
+	.mode-select { background: var(--bg-input); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 0.78rem; padding: 0.3rem 0.5rem; font-family: inherit; outline: none; cursor: pointer; }
+	.shortcut-btn { background: var(--bg-input); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 0.78rem; font-family: monospace; padding: 0.3rem 0.6rem; cursor: pointer; white-space: nowrap; min-width: 120px; text-align: center; }
+	.shortcut-btn:hover { border-color: var(--accent); }
+	.shortcut-btn.recording { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); animation: pulse 1s ease-in-out infinite; }
+	@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
 	.game-add-row { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 	.game-inp { background: var(--bg-input); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 0.8rem; padding: 0.35rem 0.5rem; font-family: inherit; outline: none; min-width: 100px; }
 	.game-inp:focus { border-color: var(--accent); }

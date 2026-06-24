@@ -45,9 +45,19 @@
 			});
 			window.addEventListener('conclave-shortcut', (e) => {
 				const action: string = (e as CustomEvent).detail;
-				if (action === 'mute') {
-					import('$lib/voice').then(({ toggleMute }) => toggleMute());
-				}
+				import('$lib/voice').then(({ toggleMute, voiceState, setMuted }) => {
+					if (action === 'mute') {
+						toggleMute();
+					} else if (action === 'ptt-start') {
+						setMuted(false);
+					} else if (action === 'ptt-end') {
+						setMuted(true);
+					} else if (action === 'ptm-start') {
+						setMuted(true);
+					} else if (action === 'ptm-end') {
+						setMuted(false);
+					}
+				});
 			});
 		}
 
