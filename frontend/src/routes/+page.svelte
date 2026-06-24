@@ -964,6 +964,7 @@
 		flex-direction: column;
 		overflow: hidden;
 		min-width: 0;
+		position: relative;
 	}
 	header {
 		display: flex;
@@ -1193,17 +1194,23 @@
 	}
 	.reply-bar-cancel:hover { color: var(--text); }
 	.typing-bar {
-		height: 0;
-		overflow: hidden;
+		position: absolute;
+		bottom: 0;
+		left: 0;
+		right: 0;
 		display: flex;
 		align-items: center;
 		gap: 0.4rem;
-		padding: 0 1rem;
-		transition: height 0.15s ease;
-		flex-shrink: 0;
+		padding: 0 1rem 0.25rem;
+		pointer-events: none;
+		opacity: 0;
+		transform: translateY(4px);
+		transition: opacity 0.15s ease, transform 0.15s ease;
+		z-index: 2;
 	}
 	.typing-bar.visible {
-		height: 1.5rem;
+		opacity: 1;
+		transform: translateY(0);
 	}
 	.typing-dots {
 		display: flex;
