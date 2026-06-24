@@ -14,6 +14,49 @@
 	let uploading = $state(false);
 	let fileInput: HTMLInputElement;
 
+	// Desktop-only game detection
+	const isDesktop = typeof window !== 'undefined' && !!(window as any).__TAURI_DESKTOP__;
+	const tauri = isDesktop ? (window as any).__TAURI__?.core : null;
+
+	interface GameEntry { name: string; processes: string[] }
+	let games = $state<GameEntry[]>([]);
+	let gamesLoaded = $state(false);
+	let gamesSaving = $state(false);
+	let newGameName = $state('');
+	let newGameProcs = $state('');
+
+	if (isDesktop) {
+		tauri.invoke('get_games').then((g: GameEntry[]) => { games = g; gamesLoaded = true; });
+	}
+
+	async function saveGames() {
+		gamesSaving = true;
+		try { await tauri.invoke('save_games', { games }); }
+		finally { gamesSaving = false; }
+	}
+
+	function addGame() {
+		const name = newGameName.trim();
+		const processes = newGameProcs.split(',').map((p: string) => p.trim().toLowerCase()).filter(Boolean);
+		if (!name || !processes.length) return;
+		games = [...games, { name, processes }];
+		newGameName = '';
+		newGameProcs = '';
+		saveGames();
+	}
+
+	function removeGame(i: number) {
+		games = games.filter((_, idx) => idx !== i);
+		saveGames();
+	}
+
+	function updateGameProcesses(i: number, val: string) {
+		games = games.map((g, idx) => idx === i
+			? { ...g, processes: val.split(',').map((p: string) => p.trim().toLowerCase()).filter(Boolean) }
+			: g
+		);
+	}
+
 	// Sync form fields if store changes (e.g. after avatar upload re-fetch)
 	$effect(() => {
 		displayName = $currentUser?.display_name ?? '';
@@ -146,6 +189,31 @@
 			</div>
 		</div>
 
+		{#if isDesktop && gamesLoaded}
+			<div class="section">
+				<div class="section-title">Game Detection</div>
+				<div class="game-add-row">
+					<input class="game-inp" bind:value={newGameName} placeholder="Game name" />
+					<input class="game-inp wide" bind:value={newGameProcs} placeholder="process.exe, other.exe" />
+					<button class="game-add-btn" onclick={addGame} disabled={!newGameName.trim() || !newGameProcs.trim()}>Add</button>
+				</div>
+				<div class="game-list">
+					{#each games as game, i}
+						<div class="game-row">
+							<span class="game-name">{game.name}</span>
+							<input
+								class="proc-input"
+								value={game.processes.join(', ')}
+								onchange={(e) => { updateGameProcesses(i, (e.target as HTMLInputElement).value); saveGames(); }}
+							/>
+							<button class="game-remove" onclick={() => removeGame(i)} title="Remove">✕</button>
+						</div>
+					{/each}
+				</div>
+				{#if gamesSaving}<p class="game-hint">Saving…</p>{/if}
+			</div>
+		{/if}
+
 		{#if $instanceConfig.desktop_download_url}
 			<div class="desktop-section">
 				<a class="desktop-btn" href={$instanceConfig.desktop_download_url} target="_blank" rel="noopener noreferrer">
@@ -178,7 +246,10 @@
 		border: 1px solid var(--border);
 		border-radius: 8px;
 		padding: 1.5rem;
-		width: 400px;
+		width: 480px;
+		max-width: 95vw;
+		max-height: 90vh;
+		overflow-y: auto;
 		display: flex;
 		flex-direction: column;
 		gap: 1rem;
@@ -331,6 +402,34 @@
 		display: block;
 	}
 	.toggle.on .knob { transform: translateX(16px); }
+	.section {
+		border-top: 1px solid var(--border);
+		padding-top: 0.75rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+	.section-title {
+		font-size: 0.75rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--text-muted);
+	}
+	.game-add-row { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+	.game-inp { background: var(--bg-input); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 0.8rem; padding: 0.35rem 0.5rem; font-family: inherit; outline: none; min-width: 100px; }
+	.game-inp:focus { border-color: var(--accent); }
+	.game-inp.wide { flex: 1; }
+	.game-add-btn { background: var(--accent); border: none; border-radius: 4px; color: white; font-size: 0.8rem; font-weight: 600; padding: 0.35rem 0.7rem; cursor: pointer; font-family: inherit; white-space: nowrap; }
+	.game-add-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+	.game-list { display: flex; flex-direction: column; gap: 0.25rem; max-height: 180px; overflow-y: auto; }
+	.game-row { display: flex; align-items: center; gap: 0.4rem; }
+	.game-name { font-size: 0.8rem; font-weight: 600; min-width: 120px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.proc-input { flex: 1; background: var(--bg-input); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); font-size: 0.72rem; padding: 0.25rem 0.4rem; font-family: monospace; outline: none; min-width: 0; }
+	.proc-input:focus { border-color: var(--accent); color: var(--text); }
+	.game-remove { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.75rem; padding: 0.15rem 0.3rem; border-radius: 3px; flex-shrink: 0; }
+	.game-remove:hover { color: #e04545; background: rgba(224,69,69,0.1); }
+	.game-hint { font-size: 0.72rem; color: var(--text-muted); margin: 0; }
 	.desktop-section {
 		border-top: 1px solid var(--border);
 		padding-top: 0.75rem;
