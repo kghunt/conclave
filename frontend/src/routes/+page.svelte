@@ -319,7 +319,7 @@
 	let uploading = $state(false);
 	let showEmoji = $state(false);
 	let fileInput: HTMLInputElement;
-	let textarea: HTMLTextAreaElement;
+	let textarea: HTMLElement;
 	let replyingTo = $state<Message | null>(null);
 
 	// Typing indicator
@@ -493,9 +493,39 @@
 		return () => { unsub(); socket.unsubscribe(room); };
 	});
 
+	function getCaretPos(): number {
+		if (!textarea) return 0;
+		const sel = window.getSelection();
+		if (!sel || !sel.rangeCount) return 0;
+		const range = sel.getRangeAt(0).cloneRange();
+		range.selectNodeContents(textarea);
+		range.setEnd(sel.getRangeAt(0).endContainer, sel.getRangeAt(0).endOffset);
+		return range.toString().length;
+	}
+
+	function setCaretPos(pos: number) {
+		if (!textarea) return;
+		textarea.focus();
+		const walker = document.createTreeWalker(textarea, NodeFilter.SHOW_TEXT);
+		let remaining = pos;
+		let node = walker.nextNode() as Text | null;
+		while (node && remaining > node.length) { remaining -= node.length; node = walker.nextNode() as Text | null; }
+		const range = document.createRange();
+		if (node) { range.setStart(node, Math.min(remaining, node.length)); }
+		else { range.selectNodeContents(textarea); range.collapse(false); }
+		range.collapse(true);
+		const sel = window.getSelection();
+		sel?.removeAllRanges();
+		sel?.addRange(range);
+	}
+
+	function syncInput() {
+		// innerText on a contenteditable div may end with a trailing \n
+		input = (textarea?.innerText ?? '').replace(/\n$/, '');
+	}
+
 	function onInput() {
-		const el = textarea;
-		if (!el) return;
+		syncInput();
 
 		// Throttled typing indicator
 		if (input.trim() && ($activeChannel || $activeDM)) {
@@ -509,7 +539,7 @@
 
 		// @mention autocomplete
 		if (!$activeServer) return;
-		const pos = el.selectionStart ?? 0;
+		const pos = getCaretPos();
 		const before = input.slice(0, pos);
 		const match = before.match(/@(\w*)$/);
 		if (match) {
@@ -524,27 +554,22 @@
 
 	function insertMention(member: ServerMember) {
 		const handle = member.user.display_name.replace(/\s+/g, '_');
-		const el = textarea;
-		if (!el) return;
-		const curPos = el.selectionStart ?? input.length;
-		input = input.slice(0, mentionStart) + '@' + handle + ' ' + input.slice(curPos);
+		if (!textarea) return;
+		const curPos = getCaretPos();
+		const newText = input.slice(0, mentionStart) + '@' + handle + ' ' + input.slice(curPos);
+		input = newText;
+		textarea.innerText = newText;
 		showMentionPopup = false;
-		setTimeout(() => {
-			el.focus();
-			el.selectionStart = el.selectionEnd = mentionStart + handle.length + 2;
-		}, 0);
+		setTimeout(() => setCaretPos(mentionStart + handle.length + 2), 0);
 	}
 
 	function insertEmoji(emoji: string) {
-		const el = textarea;
-		if (!el) { input += emoji; return; }
-		const start = el.selectionStart ?? input.length;
-		const end = el.selectionEnd ?? input.length;
-		input = input.slice(0, start) + emoji + input.slice(end);
-		setTimeout(() => {
-			el.focus();
-			el.selectionStart = el.selectionEnd = start + emoji.length;
-		}, 0);
+		if (!textarea) { input += emoji; return; }
+		const pos = getCaretPos();
+		const newText = input.slice(0, pos) + emoji + input.slice(pos);
+		input = newText;
+		textarea.innerText = newText;
+		setTimeout(() => setCaretPos(pos + emoji.length), 0);
 	}
 
 	async function send() {
@@ -552,6 +577,7 @@
 		const text = input.trim();
 		if (!text) return;
 		input = '';
+		if (textarea) textarea.innerText = '';
 		showMentionPopup = false;
 		const replyId = replyingTo?.id;
 		replyingTo = null;
@@ -563,7 +589,8 @@
 			} catch (e: any) {
 				if (e?.status === 429 && e?.retry_after_seconds) {
 					startSlowModeCooldown(e.retry_after_seconds);
-					input = text; // restore the text so user doesn't lose it
+					input = text;
+					if (textarea) textarea.innerText = text;
 				}
 			}
 		}
@@ -879,17 +906,20 @@
 						{/each}
 					</div>
 				{/if}
-				<textarea
+				<div
 					bind:this={textarea}
-					bind:value={input}
+					contenteditable={(!$activeChannel && !$activeDM) || uploading ? false : true}
+					role="textbox"
+					aria-multiline="true"
+					aria-label="Message input"
+					class="msg-input"
+					class:input-disabled={(!$activeChannel && !$activeDM) || uploading}
+					data-placeholder={$activeChannel ? `Message #${$activeChannel.name}` : $activeDM ? `Message ${$activeDM.other_user.display_name}` : 'Select a channel'}
 					onkeydown={onKeydown}
 					oninput={onInput}
 					onpaste={onPaste}
 					onbeforeinput={onBeforeInput}
-					placeholder={$activeChannel ? `Message #${$activeChannel.name}` : $activeDM ? `Message ${$activeDM.other_user.display_name}` : 'Select a channel'}
-					rows="1"
-					disabled={(!$activeChannel && !$activeDM) || uploading}
-				></textarea>
+				></div>
 			</div>
 			{/if}
 		</main>
@@ -1280,7 +1310,7 @@
 	.action-icon:hover:not(:disabled) { background: #3a3a45; color: var(--text); }
 	.action-icon.active { background: var(--accent); border-color: var(--accent); color: white; }
 	.action-icon:disabled { opacity: 0.35; cursor: not-allowed; }
-	textarea {
+	.msg-input {
 		width: 100%;
 		background: var(--bg-input);
 		border: 1px solid var(--border);
@@ -1288,17 +1318,27 @@
 		color: var(--text);
 		padding: 0.75rem 1rem;
 		font-size: 0.95rem;
-		resize: none;
 		outline: none;
 		font-family: inherit;
+		min-height: 2.8rem;
+		max-height: 12rem;
+		overflow-y: auto;
+		word-break: break-word;
+		white-space: pre-wrap;
+		line-height: 1.4;
 	}
-	textarea:disabled { opacity: 0.5; cursor: not-allowed; }
+	.msg-input:empty::before {
+		content: attr(data-placeholder);
+		color: var(--text-muted);
+		pointer-events: none;
+	}
+	.msg-input.input-disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
 
 	.members-overlay {
 		display: none;
 	}
 	@media (max-width: 767px) {
-		textarea { font-size: 16px; /* prevents iOS zoom on focus */ }
+		.msg-input { font-size: 16px; /* prevents iOS zoom on focus */ }
 		.input-area { padding: 0.5rem; }
 		.members-overlay {
 			display: flex;
