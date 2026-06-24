@@ -4,8 +4,11 @@
 	import { currentUser, showProfileModal } from '$lib/stores';
 	import Avatar from './Avatar.svelte';
 	import AdminPanel from './AdminPanel.svelte';
+	import DesktopGamesModal from './DesktopGamesModal.svelte';
 
 	let showAdmin = $state(false);
+	let showGames = $state(false);
+	const isDesktop = typeof window !== 'undefined' && !!(window as any).__TAURI_DESKTOP__;
 	let pushSupported = $state(false);
 	let pushSubscribed = $state(false);
 	let pushToggling = $state(false);
@@ -80,6 +83,11 @@
 				{/if}
 			</button>
 		{/if}
+		{#if isDesktop}
+			<button class="icon-bar-btn" onclick={() => (showGames = true)} title="Game detection settings">
+				<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M21 6H3a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1zm-1 10H4V8h16v8zm-8-6h-2v2H8v2h2v2h2v-2h2v-2h-2z"/></svg>
+			</button>
+		{/if}
 		{#if $currentUser?.is_instance_admin}
 			<button class="admin-btn" onclick={() => (showAdmin = true)} title="Instance admin">⚙</button>
 		{/if}
@@ -89,6 +97,9 @@
 
 {#if showAdmin}
 	<AdminPanel onclose={() => (showAdmin = false)} />
+{/if}
+{#if showGames}
+	<DesktopGamesModal onclose={() => (showGames = false)} />
 {/if}
 
 <style>
