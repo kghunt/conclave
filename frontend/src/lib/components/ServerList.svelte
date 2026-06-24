@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { api, type Server } from '$lib/api';
-	import { servers, activeServer, channels, activeChannel, activeDM, instanceConfig, currentUser, serverUnread, joinRequestPending, homeMode, friendRequests } from '$lib/stores';
+	import { servers, activeServer, channels, activeChannel, activeDM, dmConversations, instanceConfig, currentUser, serverUnread, joinRequestPending, homeMode, friendRequests } from '$lib/stores';
 	import ServerContextMenu from './ServerContextMenu.svelte';
 	import SpaceBrowser from './SpaceBrowser.svelte';
 
@@ -81,6 +81,12 @@
 		homeMode.set(true);
 		activeServer.set(null);
 		activeChannel.set(null);
+		// Restore the last open DM so the input isn't disabled when returning
+		const lastId = localStorage.getItem('lastDMId');
+		if (lastId) {
+			const dm = $dmConversations.find((c) => c.id === lastId);
+			if (dm) activeDM.set(dm);
+		}
 	}
 </script>
 
