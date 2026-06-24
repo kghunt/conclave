@@ -12,6 +12,34 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut}
 
 struct AppState {
     config: Arc<Mutex<config::Config>>,
+    games: Arc<Mutex<Vec<detector::GameEntry>>>,
+}
+
+fn games_path() -> std::path::PathBuf {
+    directories::ProjectDirs::from("com", "conclave", "desktop")
+        .expect("could not determine config directory")
+        .config_dir()
+        .join("games.json")
+}
+
+fn load_games_from_disk() -> Vec<detector::GameEntry> {
+    let path = games_path();
+    if path.exists() {
+        if let Ok(s) = std::fs::read_to_string(&path) {
+            if let Ok(g) = serde_json::from_str(&s) {
+                return g;
+            }
+        }
+    }
+    detector::load_games() // fall back to embedded default
+}
+
+fn save_games_to_disk(games: &[detector::GameEntry]) {
+    let path = games_path();
+    if let Some(dir) = path.parent() { let _ = std::fs::create_dir_all(dir); }
+    if let Ok(s) = serde_json::to_string_pretty(games) {
+        let _ = std::fs::write(path, s);
+    }
 }
 
 // Called by the setup page after the user enters their instance URL.
@@ -30,6 +58,19 @@ fn get_instance_url(state: tauri::State<AppState>) -> String {
     state.config.lock().unwrap().instance_url.clone()
 }
 
+#[tauri::command]
+fn get_games(state: tauri::State<AppState>) -> Vec<detector::GameEntry> {
+    state.games.lock().unwrap().clone()
+}
+
+#[tauri::command]
+fn save_games(games: Vec<detector::GameEntry>, state: tauri::State<AppState>) {
+    let mut lock = state.games.lock().unwrap();
+    *lock = games.clone();
+    drop(lock);
+    save_games_to_disk(&games);
+}
+
 fn navigate_to_instance(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
     let parsed = url::Url::parse(url).map_err(|e| e.to_string())?;
     if let Some(win) = app.get_webview_window("main") {
@@ -45,6 +86,8 @@ pub fn run() {
 
     let cfg = Arc::new(Mutex::new(config::Config::load()));
     let cfg_bg = cfg.clone();
+    let games = Arc::new(Mutex::new(load_games_from_disk()));
+    let games_bg = games.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -54,7 +97,7 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .manage(AppState { config: cfg })
+        .manage(AppState { config: cfg, games })
         .setup(move |app| {
             // ── Tray ──────────────────────────────────────────────────────────
             let open = MenuItem::with_id(app, "open", "Open Conclave", true, None::<&str>)?;
@@ -158,13 +201,13 @@ pub fn run() {
             )?;
 
             // ── Game detection loop ───────────────────────────────────────────
-            let games = detector::load_games();
             let app_game = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let mut last_game: Option<String> = None;
                 loop {
                     tokio::time::sleep(Duration::from_secs(30)).await;
-                    let game = detector::detect_running_game(&games);
+                    let current_games = games_bg.lock().unwrap().clone();
+                    let game = detector::detect_running_game(&current_games);
                     if game != last_game {
                         last_game = game.clone();
                         if let Some(win) = app_game.get_webview_window("main") {
@@ -181,7 +224,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![configure, get_instance_url])
+        .invoke_handler(tauri::generate_handler![configure, get_instance_url, get_games, save_games])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
