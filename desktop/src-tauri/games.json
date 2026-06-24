@@ -62,6 +62,7 @@
   { "name": "Red Dead Redemption 2",         "processes": ["rdr2.exe"] },
   { "name": "Skyrim Special Edition",        "processes": ["skyrimse.exe"] },
   { "name": "Fallout 4",                     "processes": ["fallout4.exe"] },
+  { "name": "Hell Let Loose",                 "processes": ["hll-win64-shipping.exe"] },
   { "name": "Squad",                         "processes": ["squad.exe"] },
   { "name": "Arma 3",                        "processes": ["arma3.exe", "arma3_x64.exe"] },
   { "name": "Arma Reforger",                 "processes": ["arma reforger.exe"] },
