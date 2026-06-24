@@ -8,12 +8,97 @@ use tauri::{
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
     Manager, WebviewUrl, WebviewWindowBuilder,
 };
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 struct AppState {
     config: Arc<Mutex<config::Config>>,
     games: Arc<Mutex<Vec<detector::GameEntry>>>,
 }
+
+// ── Shortcut parsing ──────────────────────────────────────────────────────────
+
+fn parse_shortcut(s: &str) -> Option<Shortcut> {
+    let mut modifiers = Modifiers::empty();
+    let mut key_code: Option<Code> = None;
+    for part in s.to_lowercase().split('+') {
+        match part.trim() {
+            "ctrl" | "control" => modifiers |= Modifiers::CONTROL,
+            "shift"             => modifiers |= Modifiers::SHIFT,
+            "alt"               => modifiers |= Modifiers::ALT,
+            "meta" | "super" | "win" | "cmd" => modifiers |= Modifiers::META,
+            k => key_code = str_to_code(k),
+        }
+    }
+    key_code.map(|c| Shortcut::new(if modifiers.is_empty() { None } else { Some(modifiers) }, c))
+}
+
+fn str_to_code(k: &str) -> Option<Code> {
+    Some(match k {
+        "a" => Code::KeyA, "b" => Code::KeyB, "c" => Code::KeyC, "d" => Code::KeyD,
+        "e" => Code::KeyE, "f" => Code::KeyF, "g" => Code::KeyG, "h" => Code::KeyH,
+        "i" => Code::KeyI, "j" => Code::KeyJ, "k" => Code::KeyK, "l" => Code::KeyL,
+        "m" => Code::KeyM, "n" => Code::KeyN, "o" => Code::KeyO, "p" => Code::KeyP,
+        "q" => Code::KeyQ, "r" => Code::KeyR, "s" => Code::KeyS, "t" => Code::KeyT,
+        "u" => Code::KeyU, "v" => Code::KeyV, "w" => Code::KeyW, "x" => Code::KeyX,
+        "y" => Code::KeyY, "z" => Code::KeyZ,
+        "0" => Code::Digit0, "1" => Code::Digit1, "2" => Code::Digit2,
+        "3" => Code::Digit3, "4" => Code::Digit4, "5" => Code::Digit5,
+        "6" => Code::Digit6, "7" => Code::Digit7, "8" => Code::Digit8, "9" => Code::Digit9,
+        "f1"  => Code::F1,  "f2"  => Code::F2,  "f3"  => Code::F3,  "f4"  => Code::F4,
+        "f5"  => Code::F5,  "f6"  => Code::F6,  "f7"  => Code::F7,  "f8"  => Code::F8,
+        "f9"  => Code::F9,  "f10" => Code::F10, "f11" => Code::F11, "f12" => Code::F12,
+        "space"      => Code::Space,
+        "backquote" | "`" => Code::Backquote,
+        "minus" | "-"     => Code::Minus,
+        "equal" | "="     => Code::Equal,
+        "tab"        => Code::Tab,
+        "capslock"   => Code::CapsLock,
+        _ => return None,
+    })
+}
+
+// ── Shortcut registration ─────────────────────────────────────────────────────
+
+fn register_shortcuts(app: &tauri::AppHandle, sc: &config::ShortcutConfig) -> Result<(), String> {
+    app.global_shortcut().unregister_all().map_err(|e| e.to_string())?;
+
+    let mute_sc = parse_shortcut(&sc.mute_key)
+        .ok_or_else(|| format!("Invalid mute shortcut: {}", sc.mute_key))?;
+    let win_sc = parse_shortcut(&sc.window_key)
+        .ok_or_else(|| format!("Invalid window shortcut: {}", sc.window_key))?;
+
+    let app_h = app.clone();
+    let mute_copy = mute_sc.clone();
+    let mode = sc.mute_mode.clone();
+
+    app.global_shortcut()
+        .on_shortcuts([mute_sc, win_sc], move |_app, shortcut, event| {
+            if shortcut == &mute_copy {
+                let js = match (mode.as_str(), event.state()) {
+                    ("push_to_talk", ShortcutState::Pressed)  =>
+                        "window.dispatchEvent(new CustomEvent('conclave-shortcut',{detail:'ptt-start'}));",
+                    ("push_to_talk", ShortcutState::Released) =>
+                        "window.dispatchEvent(new CustomEvent('conclave-shortcut',{detail:'ptt-end'}));",
+                    ("push_to_mute", ShortcutState::Pressed)  =>
+                        "window.dispatchEvent(new CustomEvent('conclave-shortcut',{detail:'ptm-start'}));",
+                    ("push_to_mute", ShortcutState::Released) =>
+                        "window.dispatchEvent(new CustomEvent('conclave-shortcut',{detail:'ptm-end'}));",
+                    (_, ShortcutState::Pressed) =>
+                        "window.dispatchEvent(new CustomEvent('conclave-shortcut',{detail:'mute'}));",
+                    _ => return, // toggle: ignore release
+                };
+                if let Some(w) = app_h.get_webview_window("main") { w.eval(js).ok(); }
+            } else if let ShortcutState::Pressed = event.state() {
+                if let Some(w) = app_h.get_webview_window("main") {
+                    if w.is_visible().unwrap_or(false) { w.hide().ok(); }
+                    else { w.show().ok(); w.set_focus().ok(); }
+                }
+            }
+        })
+        .map_err(|e| e.to_string())
+}
+
+// ── Games persistence ─────────────────────────────────────────────────────────
 
 fn games_path() -> std::path::PathBuf {
     directories::ProjectDirs::from("com", "conclave", "desktop")
@@ -26,23 +111,20 @@ fn load_games_from_disk() -> Vec<detector::GameEntry> {
     let path = games_path();
     if path.exists() {
         if let Ok(s) = std::fs::read_to_string(&path) {
-            if let Ok(g) = serde_json::from_str(&s) {
-                return g;
-            }
+            if let Ok(g) = serde_json::from_str(&s) { return g; }
         }
     }
-    detector::load_games() // fall back to embedded default
+    detector::load_games()
 }
 
 fn save_games_to_disk(games: &[detector::GameEntry]) {
     let path = games_path();
     if let Some(dir) = path.parent() { let _ = std::fs::create_dir_all(dir); }
-    if let Ok(s) = serde_json::to_string_pretty(games) {
-        let _ = std::fs::write(path, s);
-    }
+    if let Ok(s) = serde_json::to_string_pretty(games) { let _ = std::fs::write(path, s); }
 }
 
-// Called by the setup page after the user enters their instance URL.
+// ── Tauri commands ────────────────────────────────────────────────────────────
+
 #[tauri::command]
 fn configure(url: String, state: tauri::State<AppState>, app: tauri::AppHandle) -> Result<(), String> {
     {
@@ -56,6 +138,24 @@ fn configure(url: String, state: tauri::State<AppState>, app: tauri::AppHandle) 
 #[tauri::command]
 fn get_instance_url(state: tauri::State<AppState>) -> String {
     state.config.lock().unwrap().instance_url.clone()
+}
+
+#[tauri::command]
+fn get_shortcuts(state: tauri::State<AppState>) -> config::ShortcutConfig {
+    state.config.lock().unwrap().shortcuts.clone()
+}
+
+#[tauri::command]
+fn save_shortcuts(
+    shortcuts: config::ShortcutConfig,
+    state: tauri::State<AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    register_shortcuts(&app, &shortcuts)?;
+    let mut cfg = state.config.lock().unwrap();
+    cfg.shortcuts = shortcuts;
+    cfg.save();
+    Ok(())
 }
 
 #[tauri::command]
@@ -80,6 +180,8 @@ fn navigate_to_instance(app: &tauri::AppHandle, url: &str) -> Result<(), String>
     }
     Ok(())
 }
+
+// ── Entry point ───────────────────────────────────────────────────────────────
 
 pub fn run() {
     env_logger::init();
@@ -129,10 +231,6 @@ pub fn run() {
                 .build(app)?;
 
             // ── Main window ───────────────────────────────────────────────────
-            // Starts on the bundled setup page. If already configured, we
-            // immediately navigate to the instance URL.
-            // initialization_script runs on every navigation so the SvelteKit
-            // app always sees window.__TAURI_DESKTOP__ = true.
             let win = WebviewWindowBuilder::new(
                 app,
                 "main",
@@ -146,59 +244,23 @@ pub fn run() {
 
             let instance_url = cfg_bg.lock().unwrap().instance_url.clone();
             if !instance_url.is_empty() {
-                if let Ok(url) = url::Url::parse(&instance_url) {
-                    win.navigate(url);
-                }
+                if let Ok(url) = url::Url::parse(&instance_url) { win.navigate(url); }
             }
 
             win.show()?;
 
-            // Hide to tray on close instead of quitting.
             let app_for_close = app.handle().clone();
             win.on_window_event(move |event| {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
-                    if let Some(w) = app_for_close.get_webview_window("main") {
-                        w.hide().ok();
-                    }
+                    if let Some(w) = app_for_close.get_webview_window("main") { w.hide().ok(); }
                 }
             });
 
             // ── Global shortcuts ──────────────────────────────────────────────
-            // Ctrl/Cmd + Shift + M  →  mute toggle (dispatched into WebView)
-            // Ctrl/Cmd + Shift + D  →  show / hide window
-            let mute_shortcut = Shortcut::new(
-                Some(Modifiers::CONTROL | Modifiers::SHIFT),
-                Code::KeyM,
-            );
-            let hide_shortcut = Shortcut::new(
-                Some(Modifiers::CONTROL | Modifiers::SHIFT),
-                Code::KeyD,
-            );
-
-            let app_sh = app.handle().clone();
-            let mute_copy = mute_shortcut.clone();
-            app.global_shortcut().on_shortcuts(
-                [mute_shortcut, hide_shortcut],
-                move |_app, shortcut, event| {
-                    if let tauri_plugin_global_shortcut::ShortcutState::Pressed = event.state() {
-                        if shortcut == &mute_copy {
-                            if let Some(w) = app_sh.get_webview_window("main") {
-                                w.eval("window.dispatchEvent(new CustomEvent('conclave-shortcut',{detail:'mute'}));").ok();
-                            }
-                        } else {
-                            if let Some(w) = app_sh.get_webview_window("main") {
-                                if w.is_visible().unwrap_or(false) {
-                                    w.hide().ok();
-                                } else {
-                                    w.show().ok();
-                                    w.set_focus().ok();
-                                }
-                            }
-                        }
-                    }
-                },
-            )?;
+            let initial_shortcuts = cfg_bg.lock().unwrap().shortcuts.clone();
+            register_shortcuts(app.handle(), &initial_shortcuts)
+                .unwrap_or_else(|e| log::warn!("Shortcut registration failed: {e}"));
 
             // ── Game detection loop ───────────────────────────────────────────
             let app_game = app.handle().clone();
@@ -211,12 +273,10 @@ pub fn run() {
                     if game != last_game {
                         last_game = game.clone();
                         if let Some(win) = app_game.get_webview_window("main") {
-                            let payload = serde_json::to_string(&game)
-                                .unwrap_or_else(|_| "null".into());
+                            let payload = serde_json::to_string(&game).unwrap_or_else(|_| "null".into());
                             win.eval(&format!(
                                 "window.dispatchEvent(new CustomEvent('conclave-game',{{detail:{payload}}}));"
-                            ))
-                            .ok();
+                            )).ok();
                         }
                     }
                 }
@@ -224,7 +284,11 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![configure, get_instance_url, get_games, save_games])
+        .invoke_handler(tauri::generate_handler![
+            configure, get_instance_url,
+            get_shortcuts, save_shortcuts,
+            get_games, save_games,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

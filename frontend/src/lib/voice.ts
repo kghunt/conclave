@@ -552,6 +552,14 @@ export function toggleMute() {
 	voiceState.update((s) => ({ ...s, muted: !track.enabled }));
 }
 
+export function setMuted(muted: boolean) {
+	if (!localStream) return;
+	const track = localStream.getAudioTracks()[0];
+	if (!track) return;
+	track.enabled = !muted;
+	voiceState.update((s) => ({ ...s, muted }));
+}
+
 export function setMicGain(value: number) {
 	if (gainNode) gainNode.gain.value = value;
 	voiceState.update((s) => ({ ...s, micGain: value }));
