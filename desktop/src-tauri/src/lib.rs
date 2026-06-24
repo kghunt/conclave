@@ -249,6 +249,22 @@ pub fn run() {
 
             win.show()?;
 
+            // On Linux/WebKitGTK, getUserMedia permission requests must be
+            // explicitly granted — the WebView does not auto-allow them.
+            #[cfg(target_os = "linux")]
+            win.with_webview(|wv| {
+                use webkit2gtk::{PermissionRequestExt, SettingsExt, WebViewExt};
+                let inner = wv.inner();
+                inner.connect_permission_request(|_, request| {
+                    request.allow();
+                    true
+                });
+                if let Some(settings) = inner.settings() {
+                    settings.set_enable_media_stream(true);
+                    settings.set_enable_media_capabilities_api(true);
+                }
+            })?;
+
             let app_for_close = app.handle().clone();
             win.on_window_event(move |event| {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
