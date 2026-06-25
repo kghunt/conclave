@@ -283,6 +283,7 @@
 
 		const unsub = socket.on((event) => {
 			if (event.type === 'dm.new' && event.payload.conversation_id === convId) {
+				if (dmMessages.some((m) => m.id === event.payload.id)) return;
 				dmMessages = [...dmMessages, event.payload];
 				if ($notifPrefs.dmSound && event.payload.sender?.id !== $currentUser?.id) {
 					playDMSound();
