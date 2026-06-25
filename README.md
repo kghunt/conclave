@@ -6,6 +6,17 @@ Built with Go, SvelteKit, PostgreSQL, and Redis. Runs as a single `docker compos
 
 ---
 
+## Quick start
+
+```bash
+cp .env.example .env        # fill in JWT_SECRET and BASE_URL at minimum
+docker compose up --build   # first run — compiles everything inside Docker
+```
+
+Open [http://localhost:8080](http://localhost:8080). The first account registered becomes the instance admin. See [Setup](#setup) for full configuration options including Google OAuth, voice, and push notifications.
+
+---
+
 ## Features
 
 **Messaging**
@@ -328,18 +339,20 @@ Conclave serves the desktop app directly — no GitHub account needed. Go to **E
 - Reports the current game (or clears it when no game is running) to your Conclave instance via a Bearer token — no passwords stored
 - The token can be revoked at any time from Edit Profile → **Disconnect**
 
+**Download**
+
+| Platform | Download |
+|---|---|
+| Windows | [conclave-presence-windows-x64.exe](https://github.com/kghunt/conclave/releases/latest/download/conclave-presence-windows-x64.exe) |
+| macOS (Intel) | [conclave-presence-macos-x64.dmg](https://github.com/kghunt/conclave/releases/latest/download/conclave-presence-macos-x64.dmg) |
+| macOS (Apple Silicon) | [conclave-presence-macos-arm64.dmg](https://github.com/kghunt/conclave/releases/latest/download/conclave-presence-macos-arm64.dmg) |
+| Linux | [conclave-presence-linux-x64.AppImage](https://github.com/kghunt/conclave/releases/latest/download/conclave-presence-linux-x64.AppImage) |
+
+All releases are listed on the [releases page](https://github.com/kghunt/conclave/releases).
+
 **Hosting the downloads on your instance**
 
-Each release tag (`desktop-v*`) triggers a GitHub Actions build that produces canonically-named files and attaches them to the release. Copy the files for your platform(s) into `./data/downloads/` on your server:
-
-| File | Platform |
-|---|---|
-| `conclave-presence-windows-x64.exe` | Windows |
-| `conclave-presence-macos-x64.dmg` | macOS (Intel) |
-| `conclave-presence-macos-arm64.dmg` | macOS (Apple Silicon) |
-| `conclave-presence-linux-x64.AppImage` | Linux |
-
-Conclave serves them from `/downloads/` and the Edit Profile page automatically shows a download button for the user's detected platform.
+Each release tag (`desktop-v*`) triggers a GitHub Actions build that produces canonically-named files and attaches them to the release. Copy the files for your platform(s) into `./data/downloads/` on your server — the Edit Profile page will automatically show a download button for the user's detected platform.
 
 **Build from source**
 
@@ -422,4 +435,4 @@ The Go binary is built in a multi-stage Dockerfile: Node builds the SvelteKit fr
 
 ## Licence
 
-MIT
+[AGPL-3.0](LICENSE) — you may use, modify, and self-host freely. If you run a modified version as a public service, you must release your changes under the same licence.
