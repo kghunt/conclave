@@ -73,6 +73,8 @@ export const remoteVideoStore = writable<Record<string, MediaStream>>({});
 let livekitRoom: Room | null = null;
 let localVideoTrack: LocalVideoTrack | null = null;
 let localStream: MediaStream | null = null;
+let peerAudioCtx: AudioContext | null = null;
+const peerGains = new Map<string, { source: MediaStreamAudioSourceNode; gain: GainNode }>();
 let processedStream: MediaStream | null = null;
 let audioCtx: AudioContext | null = null;
 let gainNode: GainNode | null = null;
@@ -214,12 +216,15 @@ async function connectToRoom(livekitURL: string, livekitToken: string, chId: str
 
 	livekitRoom.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
 		if (track.kind === Track.Kind.Audio) {
-			const el = track.attach();
-			el.id = `voice-peer-${participant.identity}`;
-			el.style.display = 'none';
-			document.body.appendChild(el);
-			const vol = get(peerVolumesStore)[participant.identity];
-			if (vol !== undefined) el.volume = Math.min(vol, 1);
+			if (!peerAudioCtx) peerAudioCtx = new AudioContext({ latencyHint: 'interactive' });
+			if (peerAudioCtx.state === 'suspended') peerAudioCtx.resume();
+			const stream = new MediaStream([track.mediaStreamTrack]);
+			const source = peerAudioCtx.createMediaStreamSource(stream);
+			const gain = peerAudioCtx.createGain();
+			gain.gain.value = get(peerVolumesStore)[participant.identity] ?? 1;
+			source.connect(gain);
+			gain.connect(peerAudioCtx.destination);
+			peerGains.set(participant.identity, { source, gain });
 		} else if (track.kind === Track.Kind.Video && pub.source !== Track.Source.ScreenShare) {
 			const stream = new MediaStream([track.mediaStreamTrack]);
 			remoteVideoStore.update((v) => ({ ...v, [participant.identity]: stream }));
@@ -228,7 +233,12 @@ async function connectToRoom(livekitURL: string, livekitToken: string, chId: str
 
 	livekitRoom.on(RoomEvent.TrackUnsubscribed, (track, pub, participant) => {
 		if (track.kind === Track.Kind.Audio) {
-			track.detach().forEach((el) => el.remove());
+			const nodes = peerGains.get(participant.identity);
+			if (nodes) {
+				nodes.source.disconnect();
+				nodes.gain.disconnect();
+				peerGains.delete(participant.identity);
+			}
 		} else if (track.kind === Track.Kind.Video && pub.source !== Track.Source.ScreenShare) {
 			remoteVideoStore.update((v) => {
 				const next = { ...v };
@@ -578,6 +588,11 @@ export function leaveVoice(silent = false) {
 	livekitRoom?.disconnect();
 	livekitRoom = null;
 
+	peerGains.forEach(({ source, gain }) => { source.disconnect(); gain.disconnect(); });
+	peerGains.clear();
+	peerAudioCtx?.close();
+	peerAudioCtx = null;
+
 	localStream?.getTracks().forEach((t) => t.stop());
 	processedStream?.getTracks().forEach((t) => t.stop());
 	audioCtx?.close();
@@ -622,8 +637,8 @@ export function setMicGain(value: number) {
 
 export function setPeerVolume(userId: string, value: number) {
 	peerVolumesStore.update((m) => ({ ...m, [userId]: value }));
-	const el = document.getElementById(`voice-peer-${userId}`) as HTMLAudioElement | null;
-	if (el) el.volume = Math.min(value, 1);
+	const nodes = peerGains.get(userId);
+	if (nodes) nodes.gain.gain.value = value;
 }
 
 export async function setEchoCancellation(value: boolean) {
