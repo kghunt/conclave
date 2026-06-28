@@ -6,6 +6,7 @@
 	import { playMessageSound, playMentionSound, playDMSound } from '$lib/sounds';
 	import { handleIncomingCall, handleCallAccepted, handleCallDeclined, handleCallEnded, handleCallCancelled } from '$lib/voice';
 	import CallNotification from '$lib/components/CallNotification.svelte';
+import VideoGrid from '$lib/components/VideoGrid.svelte';
 	import type { ServerMember } from '$lib/api';
 	import ServerList from '$lib/components/ServerList.svelte';
 	import ChannelSidebar from '$lib/components/ChannelSidebar.svelte';
@@ -956,6 +957,7 @@
 {/if}
 
 <CallNotification />
+<VideoGrid />
 
 <style>
 	:global(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }

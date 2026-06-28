@@ -5,7 +5,9 @@ import {
 	Track,
 	type RemoteParticipant,
 	LocalAudioTrack,
+	LocalVideoTrack,
 	createLocalScreenTracks,
+	createLocalVideoTrack,
 } from 'livekit-client';
 import { socket } from './socket';
 import type { VoicePeer } from './api';
@@ -23,6 +25,7 @@ export interface VoiceState {
 	label: string;              // display name in VoicePanel
 	serverId: string | null;
 	muted: boolean;
+	cameraOn: boolean;
 	screenSharing: boolean;
 	connecting: boolean;
 	peers: VoicePeer[];
@@ -48,6 +51,7 @@ const DEFAULT_VOICE: VoiceState = {
 	label: '',
 	serverId: null,
 	muted: false,
+	cameraOn: false,
 	screenSharing: false,
 	connecting: false,
 	peers: [],
@@ -61,10 +65,13 @@ const DEFAULT_VOICE: VoiceState = {
 export const voiceState = writable<VoiceState>({ ...DEFAULT_VOICE });
 export const peerVolumesStore = writable<Record<string, number>>({});
 export const callState = writable<CallState>({ status: 'idle', convId: null, peer: null });
+export const localVideoStore = writable<MediaStream | null>(null);
+export const remoteVideoStore = writable<Record<string, MediaStream>>({});
 
 // ── Module-level state ────────────────────────────────────────────────────────
 
 let livekitRoom: Room | null = null;
+let localVideoTrack: LocalVideoTrack | null = null;
 let localStream: MediaStream | null = null;
 let processedStream: MediaStream | null = null;
 let audioCtx: AudioContext | null = null;
@@ -143,18 +150,11 @@ function getRMS(analyser: AnalyserNode): number {
 function startLocalVAD() {
 	vadInterval = setInterval(() => {
 		const me = get(currentUser);
+		if (!me || !localAnalyser) return;
 		voiceState.update((s) => {
 			const next = new Set(s.speakingUsers);
-			if (me && localAnalyser) {
-				if (getRMS(localAnalyser) > 0.015) next.add(me.id);
-				else next.delete(me.id);
-			}
-			if (livekitRoom) {
-				for (const p of livekitRoom.remoteParticipants.values()) {
-					if (p.isSpeaking) next.add(p.identity);
-					else next.delete(p.identity);
-				}
-			}
+			if (getRMS(localAnalyser!) > 0.015) next.add(me.id);
+			else next.delete(me.id);
 			return { ...s, speakingUsers: next };
 		});
 	}, 80);
@@ -212,18 +212,42 @@ async function connectToRoom(livekitURL: string, livekitToken: string, chId: str
 		playPeerLeaveSound();
 	});
 
-	livekitRoom.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
-		if (track.kind !== Track.Kind.Audio) return;
-		const el = track.attach();
-		el.id = `voice-peer-${participant.identity}`;
-		el.style.display = 'none';
-		document.body.appendChild(el);
-		const vol = get(peerVolumesStore)[participant.identity];
-		if (vol !== undefined) el.volume = Math.min(vol, 1);
+	livekitRoom.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
+		if (track.kind === Track.Kind.Audio) {
+			const el = track.attach();
+			el.id = `voice-peer-${participant.identity}`;
+			el.style.display = 'none';
+			document.body.appendChild(el);
+			const vol = get(peerVolumesStore)[participant.identity];
+			if (vol !== undefined) el.volume = Math.min(vol, 1);
+		} else if (track.kind === Track.Kind.Video && pub.source !== Track.Source.ScreenShare) {
+			const stream = new MediaStream([track.mediaStreamTrack]);
+			remoteVideoStore.update((v) => ({ ...v, [participant.identity]: stream }));
+		}
 	});
 
-	livekitRoom.on(RoomEvent.TrackUnsubscribed, (track) => {
-		track.detach().forEach((el) => el.remove());
+	livekitRoom.on(RoomEvent.TrackUnsubscribed, (track, pub, participant) => {
+		if (track.kind === Track.Kind.Audio) {
+			track.detach().forEach((el) => el.remove());
+		} else if (track.kind === Track.Kind.Video && pub.source !== Track.Source.ScreenShare) {
+			remoteVideoStore.update((v) => {
+				const next = { ...v };
+				delete next[participant.identity];
+				return next;
+			});
+		}
+	});
+
+	livekitRoom.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+		const ids = new Set(speakers.map((p) => p.identity));
+		voiceState.update((s) => {
+			const next = new Set(s.speakingUsers);
+			for (const p of livekitRoom!.remoteParticipants.values()) {
+				if (ids.has(p.identity)) next.add(p.identity);
+				else next.delete(p.identity);
+			}
+			return { ...s, speakingUsers: next };
+		});
 	});
 
 	livekitRoom.on(RoomEvent.Disconnected, () => {
@@ -492,6 +516,31 @@ export function handleCallCancelled(): void {
 	callState.set({ status: 'idle', convId: null, peer: null });
 }
 
+// ── Public: camera ────────────────────────────────────────────────────────────
+
+export async function toggleCamera(): Promise<void> {
+	if (!livekitRoom) return;
+	const cur = get(voiceState);
+	if (cur.cameraOn) {
+		if (localVideoTrack) {
+			await livekitRoom.localParticipant.unpublishTrack(localVideoTrack);
+			localVideoTrack.stop();
+			localVideoTrack = null;
+		}
+		localVideoStore.set(null);
+		voiceState.update((s) => ({ ...s, cameraOn: false }));
+	} else {
+		try {
+			localVideoTrack = await createLocalVideoTrack();
+			await livekitRoom.localParticipant.publishTrack(localVideoTrack);
+			localVideoStore.set(new MediaStream([localVideoTrack.mediaStreamTrack]));
+			voiceState.update((s) => ({ ...s, cameraOn: true }));
+		} catch {
+			// Camera permission denied or no device available
+		}
+	}
+}
+
 // ── Public: leave ─────────────────────────────────────────────────────────────
 
 export function leaveVoice(silent = false) {
@@ -520,6 +569,12 @@ export function leaveVoice(silent = false) {
 	stopLocalVAD();
 	localAudioTrack?.stop();
 	localAudioTrack = null;
+	if (localVideoTrack) {
+		localVideoTrack.stop();
+		localVideoTrack = null;
+	}
+	localVideoStore.set(null);
+	remoteVideoStore.set({});
 	livekitRoom?.disconnect();
 	livekitRoom = null;
 

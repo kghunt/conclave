@@ -1,7 +1,7 @@
 <script lang="ts">
 	import {
 		voiceState, leaveVoice, toggleMute, setMicGain,
-		setEchoCancellation, setNoiseSuppression, setAutoGainControl, toggleScreenShare
+		setEchoCancellation, setNoiseSuppression, setAutoGainControl, toggleScreenShare, toggleCamera
 	} from '$lib/voice';
 	import { channels } from '$lib/stores';
 	import { get } from 'svelte/store';
@@ -49,6 +49,18 @@
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z"/></svg>
 					{:else}
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+					{/if}
+				</button>
+				<button
+					class="vbtn"
+					class:cam-active={$voiceState.cameraOn}
+					onclick={toggleCamera}
+					title={$voiceState.cameraOn ? 'Turn off camera' : 'Turn on camera'}
+				>
+					{#if $voiceState.cameraOn}
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+					{:else}
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M21 6.5l-4-4-9.5 9.5-2 4.5 4.5-2L21 6.5z"/><path d="M16.06 15.35l-2.29-2.29L3 4.27 1.72 5.55l2.28 2.28C3.39 8.28 3 8.97 3 9.77V17c0 1.1.9 2 2 2h12c.23 0 .44-.05.65-.1l1.58 1.58L20.45 19l-4.39-3.65zM21 7l-4 4V7h-3l2 2H5.27L21 18.73V7z" opacity=".6"/></svg>
 					{/if}
 				</button>
 				<button
@@ -165,6 +177,7 @@
 	.leave-btn:hover { background: rgba(240,71,71,0.25); color: #f04747; }
 	.vbtn.muted { background: rgba(240,71,71,0.15); color: #f04747; }
 	.vbtn.settings-active { background: rgba(255,255,255,0.12); color: var(--text); }
+	.vbtn.cam-active { background: rgba(67,181,129,0.2); color: #43b581; }
 	.vbtn.screen-active { background: rgba(88,101,242,0.2); color: #5865f2; }
 
 	.mic-row, .vad-row {
